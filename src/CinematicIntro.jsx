@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, SlidersHorizontal, Volume2, Zap } from 'lucide-react';
 import { createEngine } from './engine';
 import { freshRun } from './levels';
-import { audioLevel, setCombatAudio, introCue, setIntroAudio, unlockAudio } from './audio';
+import { introFrequencyData, setCombatAudio, introCue, setIntroAudio, unlockAudio } from './audio';
 
 const DURATION=16,TAU=Math.PI*2;
 const ACTS=[
@@ -11,7 +11,12 @@ const ACTS=[
  {title:'THE THREE SECTORS',tag:'LIVE ENGINE / COMBAT RECONSTRUCTION',color:'#52DFFF',subtitle:'DECRYPT THE PERIMETER RELAYS. SURVIVE THE CRYO-LASER GRID. HARVEST DATA SHARDS TO UPGRADE YOUR EXOSUIT.'},
  {title:'TARGET: AETHER MAINFRAME',tag:'FINAL DIRECTIVE / BREAK THE SYSTEM',color:'#FF354F',subtitle:'BREACH THE MAINFRAME CORE. TERMINATE AETHER. BREAK THE SYSTEM.'},
 ];
-const MONTAGE=[{level:1,cut:0,label:'01 / PERIMETER RELAY BREACH'},{level:2,cut:0,label:'02 / LINKED CRYO-LASERS'},{level:1,cut:1,label:'03 / EMP DRONE SWARM'}];
+// Intro-only edit points put the existing engine EMP cue (local 2.5s) at 10.0s.
+const MONTAGE=[{level:1,cut:0,start:8,speed:4.5,label:'01 / PERIMETER RELAY BREACH'},{level:2,cut:0,start:8.8,speed:6,label:'02 / LINKED CRYO-LASERS'},{level:1,cut:1,start:9.35,speed:2.5/.65,label:'03 / EMP DRONE SWARM'}];
+const montageIndex=t=>t<8.8?0:t<9.35?1:2;
+const IMPACTS=[{at:1.8,act:0,strength:7},{at:5.2,act:1,strength:10},{at:10,act:2,strength:9},{at:13.5,act:3,strength:12}];
+const VISUAL_INTENSITY=new Float32Array([.85,1.05,1.15,1.3]);
+const KINETIC_TITLES=['ACT I // LOCKDOWN','ACT II // OVERCLOCK','ACT III // BREACH','ACT IV // AETHER'];
 const clamp=(n,a=0,b=1)=>Math.max(a,Math.min(b,n));
 function text(ctx,value,x,y,color,size=11,align='center'){ctx.shadowBlur=0;ctx.fillStyle=color;ctx.font=`${size}px Consolas, monospace`;ctx.textAlign=align;ctx.fillText(value,x,y);}
 function circle(ctx,x,y,r,color,width=1){ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.stroke();}
@@ -29,7 +34,7 @@ const DATA_MOTES=Array.from({length:36},(_,i)=>({x:100+(i*173)%1000,y:190+(i*79)
 const RED_ORDNANCE=Array.from({length:16},(_,i)=>{const a=i*TAU/16+.12,radius=190+(i%3)*28;return {c:Math.cos(a),s:Math.sin(a),radius,arrival:1.2+2.6*(1-Math.cbrt(1-(radius-70)/600)),shards:Array.from({length:6},(_,k)=>{const b=a+(k-2.5)*.58;return {vx:Math.cos(b)*(22+k*6),vy:Math.sin(b)*(22+k*6),dx:Math.cos(b)*4,dy:Math.sin(b)*4};})};});
 const COLOR_BLEND=Array.from({length:256},(_,i)=>{const p=i/255;return `rgb(${Math.round(82+173*p)},${Math.round(223-170*p)},${Math.round(255-176*p)})`;});
 const DIAGNOSTIC_RINGS=[{r:160,speed:.07,alpha:.7},{r:191,speed:-.055,alpha:.45},{r:222,speed:.04,alpha:.3}];
-const WAVE_BARS=Array.from({length:28},(_,i)=>i);
+const WAVE_BARS=Array.from({length:32},(_,i)=>i);
 const ART_CACHE=new WeakMap();
 function segment(ctx,x1,y1,x2,y2,color,width=1){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}
 function polygon(ctx,vertices,fill,edge,width=1){ctx.beginPath();ctx.moveTo(vertices[0],vertices[1]);for(let i=2;i<vertices.length;i+=2)ctx.lineTo(vertices[i],vertices[i+1]);ctx.closePath();ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=edge;ctx.lineWidth=width;ctx.stroke();}
@@ -61,7 +66,7 @@ function storyArt(ctx){
 }
 function drawCity(ctx,t,art){
  const takeover=easeInOutSine((t-.45)/2.8),zoom=.84+.18*easeOutCubic(t/4),color=COLOR_BLEND[Math.round(takeover*255)];
- ctx.fillStyle='#080B10';ctx.fillRect(0,0,1200,760);ctx.save();ctx.translate(600,355);ctx.scale(zoom,zoom);ctx.translate(-600,-355);ctx.drawImage(art.orbital,0,0);
+ ctx.fillStyle='#080B10';ctx.fillRect(0,0,1200,760);ctx.save();ctx.translate(600,355);ctx.scale(zoom,zoom);ctx.translate(-600,-355);ctx.drawImage(art.orbital,0,0);drawKinetic(ctx,0,t);
  for(let i=0;i<RADAR_RINGS.length;i++){const progress=easeOutCubic(t/4);ctx.globalAlpha=.2-progress*.1;circle(ctx,600,355,RADAR_RINGS[i]+progress*85,'#52DFFF',1);}ctx.globalAlpha=1;
  const scanY=120+450*easeInOutSine((t-.35)/3);
  for(const node of FACILITY_NODES){
@@ -76,7 +81,7 @@ function drawCity(ctx,t,art){
 }
 function drawLaunchBay(ctx,t,art){
  const ignition=easeOutCubic((t-1.2)/.28),zoom=.95+.09*easeOutCubic(t/4);
- ctx.fillStyle='#080B10';ctx.fillRect(0,0,1200,760);ctx.save();ctx.translate(600,355);ctx.scale(zoom,zoom);ctx.translate(-600,-355);ctx.drawImage(art.bay,0,0);
+ ctx.fillStyle='#080B10';ctx.fillRect(0,0,1200,760);ctx.save();ctx.translate(600,355);ctx.scale(zoom,zoom);ctx.translate(-600,-355);ctx.drawImage(art.bay,0,0);drawKinetic(ctx,1,t);
  ctx.globalAlpha=ignition;ctx.drawImage(art.halo,0,0);ctx.globalAlpha=1;
  for(const ring of DIAGNOSTIC_RINGS){ctx.save();ctx.translate(600,355);ctx.rotate(t*ring.speed);ctx.globalAlpha=ring.alpha;circle(ctx,0,0,ring.r,'#52DFFF',1);ctx.beginPath();for(const tick of RING_TICKS){ctx.moveTo(tick.c*ring.r,tick.s*ring.r);ctx.lineTo(tick.c*(ring.r+(tick.major?10:4)),tick.s*(ring.r+(tick.major?10:4)));}ctx.strokeStyle='#52DFFF';ctx.lineWidth=1;ctx.stroke();ctx.globalAlpha=1;ctx.restore();}
  // Projectiles decelerate to a fixed position, then fragment analytically at wave contact.
@@ -100,6 +105,32 @@ function drawStory(canvas,act,t){
  const scale=Math.max(w/1200,h/760);ctx.save();ctx.translate((w-1200*scale)/2,(h-760*scale)/2);ctx.scale(scale,scale);act===0?drawCity(ctx,t,art):drawLaunchBay(ctx,t,art);ctx.restore();
 }
 
+// A display compositor keeps lens treatment separate from the untouched engine canvas.
+const POST_CACHE=new WeakMap();
+function kineticArt(act){return staticSurface(p=>{p.font='900 132px Impact, Arial Narrow, sans-serif';p.textAlign='center';p.fillStyle='#52DFFF';const width=p.measureText(KINETIC_TITLES[act]).width;p.save();p.translate(600,430);p.scale(Math.min(1,1100/width),1);p.fillText(KINETIC_TITLES[act],0,0);p.restore();});}
+const KINETIC_CACHE=[];
+function drawKinetic(ctx,act,t){if(!KINETIC_CACHE[act])KINETIC_CACHE[act]=kineticArt(act);ctx.save();ctx.globalAlpha=.12;ctx.drawImage(KINETIC_CACHE[act],(1-easeOutCubic(t/1.1))*-45,Math.sin(t*.4)*4);ctx.restore();}
+function postAssets(canvas,w,h){let art=POST_CACHE.get(canvas);if(!art||art.w!==w||art.h!==h){const red=document.createElement('canvas'),cyan=document.createElement('canvas');red.width=cyan.width=w;red.height=cyan.height=h;art={w,h,red,cyan,redCtx:red.getContext('2d'),cyanCtx:cyan.getContext('2d')};POST_CACHE.set(canvas,art);}return art;}
+function drawCinema(source,output,t,boss,reducedMotion){
+ if(!source.width||!source.height||!output)return;
+ const w=source.width,h=source.height,dpr=w/Math.max(1,source.clientWidth);if(output.width!==w||output.height!==h){output.width=w;output.height=h;}
+ const ctx=output.getContext('2d'),art=postAssets(output,w,h),act=Math.min(3,Math.floor(t/4)),local=t-act*4;
+ let shakeX=0,shakeY=0,flash=0;
+ for(const impact of IMPACTS){const age=t-impact.at;if(age>=0&&age<.72){const decay=Math.exp(-age*7)*(1-age/.72);if(!reducedMotion){shakeX+=Math.sin(age*61)*impact.strength*decay;shakeY+=Math.sin(age*47)*impact.strength*.65*decay;}if(age<.12)flash=Math.max(flash,.5*(1-age/.12)**2);}}
+ const finale=easeOutCubic((t-14.5)/.9),scale=Math.min(w/1200,h/760),engineZoom=1.1+(t-12)*.055;
+ const coreX=(w-1200*scale)/2+(600+((boss?.bossX??600)-(600+Math.sin((t-12)*.4)*65))*engineZoom)*scale;
+ const coreY=(h-760*scale)/2+(380+((boss?.bossY??220)-330)*engineZoom)*scale;
+ const focusX=w/2+(coreX-w/2)*finale,focusY=h/2+(coreY-h/2)*finale,zoom=1+(reducedMotion?.5:2.15)*finale;
+ ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';ctx.fillStyle='#080B10';ctx.fillRect(0,0,w,h);
+ ctx.save();ctx.translate(w/2+shakeX*dpr,h/2+shakeY*dpr);ctx.scale(zoom*1.012,zoom*1.012);ctx.translate(-focusX,-focusY);ctx.drawImage(source,0,0);ctx.restore();
+ if(act>=2){ctx.save();ctx.scale(w/1200,h/760);ctx.globalCompositeOperation='lighten';drawKinetic(ctx,act,local);ctx.restore();}
+ const transition=Math.max(0,1-Math.min(local,4-local)/.3),reveal=t>=12&&t<13?Math.sin((t-12)*Math.PI):0,aberration=reducedMotion?0:Math.max(transition,reveal);
+ if(aberration>.01){for(let i=0;i<2;i++){const pass=i?art.cyanCtx:art.redCtx;pass.globalCompositeOperation='source-over';pass.drawImage(output,0,0);pass.globalCompositeOperation='multiply';pass.fillStyle=i?'#52DFFF':'#FF354F';pass.fillRect(0,0,w,h);pass.globalCompositeOperation='source-over';}ctx.globalCompositeOperation='screen';ctx.globalAlpha=.19*aberration;ctx.drawImage(art.red,-2*dpr,0);ctx.drawImage(art.cyan,2*dpr,0);ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';}
+ if(flash>0){ctx.globalAlpha=reducedMotion?flash*.15:flash;ctx.fillStyle='#eaffff';ctx.fillRect(0,0,w,h);ctx.globalAlpha=1;}
+ if(t>=14.5){const age=t-14.5;for(let i=0;i<3;i++){const progress=clamp((age-i*.12)/1.05);if(age>=i*.12){ctx.globalAlpha=(1-progress)*.8;circle(ctx,w/2,h*.47,18*dpr+easeOutCubic(progress)*Math.max(w,h)*.72,i===1?'#52DFFF':'#A8FF54',(i===0?3:1.5)*dpr);}}ctx.globalAlpha=1;}
+ const fade=easeInOutSine((t-15.7)/.3);if(fade>0){ctx.globalAlpha=fade;ctx.fillStyle='#080B10';ctx.fillRect(0,0,w,h);ctx.globalAlpha=1;}
+}
+
 const STORY_STYLES=`
 .story-cutscene{--story-cyan:#52DFFF;--story-green:#A8FF54;--story-red:#FF354F;background:#080B10;color:#dce5ed}
 .story-cutscene .story-letterbox{position:absolute;z-index:8;left:0;right:0;background:#080B10f2;border-color:#52DFFF35;font-family:var(--mono);backdrop-filter:blur(6px)}
@@ -112,35 +143,51 @@ const STORY_STYLES=`
 @media(max-width:680px){.story-cutscene .story-top{padding:12px 14px;min-height:85px;gap:10px;align-items:flex-start}.story-transmission{font-size:6px;letter-spacing:.5px;max-width:175px}.story-top-actions{flex-direction:column;gap:8px;align-items:flex-end}.story-top-actions button{font-size:6px;letter-spacing:.2px;padding:3px 0}.story-act-heading{top:102px;left:5%;padding:7px 10px}.story-act-heading .eyebrow{font-size:6px;letter-spacing:.8px}.story-act-heading h2{font-size:26px;letter-spacing:-1px}.story-act-heading small{font-size:6px}.story-cutscene .story-bottom{padding:12px 15px 14px;min-height:222px;gap:10px}.story-subtitle{font-size:9px;line-height:1.9;min-height:86px;letter-spacing:.15px}.story-comms{font-size:6px;letter-spacing:.5px;gap:10px}.story-waveform{min-width:85px;gap:2px}.story-waveform i{width:2px}.story-timeline{gap:12px}.story-act-ticks{font-size:5px;letter-spacing:.2px;gap:5px}.story-clock{font-size:7px}.story-cursor{height:10px;width:4px}.story-montage-tabs{bottom:240px;gap:5px;left:4%;right:4%}.story-montage-tabs span{font-size:5px;padding:8px 5px;letter-spacing:.15px}.story-boss-meter{top:212px;left:15%;right:15%;font-size:6px}.story-cutscene .neural-boot{padding:100px 18px 240px;gap:16px}.story-cutscene .neural-boot h1{font-size:28px}.story-cutscene .neural-boot p{font-size:10px}.story-cutscene .neural-boot .primary-button{font-size:6px;padding:13px 10px}}
 @media(max-height:650px) and (min-width:681px){.story-cutscene .story-top{min-height:55px;padding:10px 20px}.story-act-heading{top:68px}.story-act-heading h2{font-size:29px}.story-cutscene .story-bottom{min-height:137px;padding:10px 20px;gap:7px}.story-subtitle{font-size:10px;min-height:36px}.story-montage-tabs{bottom:156px}.story-boss-meter{top:165px}.story-cutscene .neural-boot{padding-bottom:140px;gap:12px}}
 @media(prefers-reduced-motion:reduce){.story-cursor,.story-cut-flash,.story-exit{animation:none}.story-cut-flash{display:none}}
+/* Post-processing is confined to the transmission; combat rendering stays untouched. */
+.story-cutscene .cinema-source{opacity:0;pointer-events:none}.cinema-screen{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.cinema-lens{position:absolute;inset:0;z-index:2;pointer-events:none;background:radial-gradient(ellipse at 50% 46%,transparent 35%,#080B1022 65%,#000000b0 100%)}.cinema-lens:after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 3px,#52DFFF0a 3px 4px);opacity:.24}
+.cinema-spectrum{display:flex;align-items:center;gap:2px;height:24px;flex-shrink:0}.cinema-spectrum i{width:2px;height:24px;display:block;background:linear-gradient(0deg,#52DFFF,#A8FF54);transform:scaleY(.08);transform-origin:center;will-change:transform}.cinema-spectrum-top{height:18px;gap:2px}.cinema-spectrum-top i{height:18px}.story-grand-finale{position:absolute;inset:0;z-index:7;display:grid;place-items:center;pointer-events:none;opacity:var(--slam-opacity,0);background:radial-gradient(ellipse at center,#080B1077,transparent 70%)}.finale-emblem{display:flex;flex-direction:column;align-items:center;width:92%;transform:scale(var(--slam-scale,1));text-align:center;filter:drop-shadow(0 0 22px #A8FF5422)}.finale-emblem>span{font:clamp(16px,2.5vw,36px) var(--mono);letter-spacing:.45em;padding-left:.45em;color:#52DFFF}.finale-emblem>strong{font:900 clamp(48px,10vw,152px)/1.05 Impact,Arial Narrow,sans-serif;letter-spacing:.025em;color:#A8FF54;text-shadow:0 0 25px #A8FF5444,0 3px 0 #343D48,2px 0 #52DFFF77,-2px 0 #FF354F33}.finale-emblem>small{font:9px var(--mono);letter-spacing:3px;color:#b9e9ed;border-top:1px solid #52DFFF77;margin-top:20px;padding:13px 25px}.story-cutscene:has(.story-grand-finale) .story-act-heading,.story-cutscene:has(.story-grand-finale) .story-boss-meter{opacity:0;transition:opacity .15s}
+@media(max-width:680px){.cinema-spectrum-top{gap:1px;align-self:center}.cinema-spectrum-top i{width:1px;height:15px}.cinema-spectrum-bottom{gap:2px;height:22px}.cinema-spectrum-bottom i{height:22px}.finale-emblem>small{font-size:6px;letter-spacing:1.4px;padding:10px 12px;margin-top:13px}.story-transmission{max-width:150px}.story-cutscene .story-top{gap:9px}.finale-emblem>span{letter-spacing:.3em;padding-left:.3em}}
+@media(prefers-reduced-motion:reduce){.finale-emblem{transform:none}.cinema-lens:after{opacity:.1}}
+
 `;
 
 export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOptions,paused=false}){
+ const screen=useRef(null),root=useRef(null),spectrum=useRef(null),topBars=useRef(null),bottomBars=useRef(null);
+ if(!spectrum.current)spectrum.current={raw:new Uint8Array(32),levels:new Float32Array(32)};
+ if(!topBars.current){topBars.current=WAVE_BARS.map(()=>({current:null}));bottomBars.current=WAVE_BARS.map(()=>({current:null}));}
  const canvas=useRef(null),current=useRef({paused}),elapsedRef=useRef(0),mounted=useRef(true),finished=useRef(false);
  current.current={paused};
  const [started,setStarted]=useState(false),[booting,setBooting]=useState(false),[error,setError]=useState(false),[elapsed,setElapsed]=useState(0);
- useEffect(()=>{mounted.current=true;storyArt(canvas.current.getContext('2d'));return()=>{mounted.current=false;};},[]);
+ useEffect(()=>{mounted.current=true;storyArt(canvas.current.getContext('2d'));for(let i=0;i<4;i++)if(!KINETIC_CACHE[i])KINETIC_CACHE[i]=kineticArt(i);return()=>{mounted.current=false;};},[]);
  function complete(){if(finished.current)return;finished.current=true;setIntroAudio(false);setCombatAudio(false);onComplete();}
  async function boot(){if(booting)return;setBooting(true);const ready=await unlockAudio();if(!mounted.current||finished.current)return;setBooting(false);if(ready){onEnableAudio?.();setStarted(true);setError(false);}else setError(true);}
  useEffect(()=>{
   if(!started)return;
-  let raf,engine,stage='',last=0,lastUI=0,lastAct=-1,lastType=0,lastClick=-1,lastBeat=-1,lastAlarm=-1,glitchPlayed=false;
+  let raf,engine,stage='',last=0,lastUI=0,lastAct=-1,lastType=0,lastClick=-1,lastBeat=-1,lastAlarm=-1,glitchPlayed=false,finalePlayed=false,bossTelemetry=null;
+  const cuedImpacts=new Uint8Array(4),reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const run=freshRun();run.demo=true;run.upgrades={damage:2,hull:1,energy:2,rate:1};run.health=140;
   function frame(now){
    if(finished.current)return;
    const dt=last?Math.max(0,Math.min(.1,(now-last)/1000)):0;last=now;
    if(!current.current.paused)elapsedRef.current=Math.min(DURATION,elapsedRef.current+dt);
-   const t=elapsedRef.current,act=Math.min(3,Math.floor(t/4)),local=t-act*4,montage=Math.min(2,Math.floor(local/(4/3))),next=act<2?`story-${act}`:act===2?`montage-${montage}`:'mainframe';
+   const t=elapsedRef.current,act=Math.min(3,Math.floor(t/4)),local=t-act*4,montage=montageIndex(t),next=act<2?`story-${act}`:act===2?`montage-${montage}`:'mainframe';
    if(next!==stage){
     engine?.destroy();engine=null;stage=next;
-    if(act>=2){const shot=act===2?MONTAGE[montage]:{level:3,cut:2};engine=createEngine(canvas.current,{level:shot.level,active:true,run,handleEscape:false,trailer:true,trailerCut:shot.cut,trailerTime:()=>act===2?(elapsedRef.current-8-montage*4/3)*3.1:elapsedRef.current-12,isGod:()=>true,isPaused:()=>current.current.paused,onPause(){},onBlur(){},onHud(){},onAchievement(){},onEnd(){}});}
+    if(act>=2){const shot=act===2?MONTAGE[montage]:{level:3,cut:2};engine=createEngine(canvas.current,{level:shot.level,active:true,run,handleEscape:false,trailer:true,trailerCut:shot.cut,trailerTime:()=>act===2?(elapsedRef.current-shot.start)*shot.speed:elapsedRef.current-12,isGod:()=>true,isPaused:()=>current.current.paused,onPause(){},onBlur(){},onHud(data){bossTelemetry=data;},onAchievement(){},onEnd(){}});}
    }
    if(act<2)drawStory(canvas.current,act,local);
+   drawCinema(canvas.current,screen.current,t,bossTelemetry,reducedMotion);
+   if(!current.current.paused){introFrequencyData(spectrum.current.raw);const smoothing=1-Math.exp(-dt*18),intensity=VISUAL_INTENSITY[act];for(let i=0;i<32;i++){const target=clamp(spectrum.current.raw[i]/255*intensity);spectrum.current.levels[i]+=(target-spectrum.current.levels[i])*smoothing;const transform=`scaleY(${.08+spectrum.current.levels[i]*.92})`;if(topBars.current[i].current)topBars.current[i].current.style.transform=transform;if(bottomBars.current[i].current)bottomBars.current[i].current.style.transform=transform;}}
+   if(root.current){root.current.style.setProperty('--slam-scale',String(1.6-.6*easeOutCubic((t-14.5)/.25)));root.current.style.setProperty('--slam-opacity',String(easeOutCubic((t-14.5)/.16)*(1-easeInOutSine((t-15.7)/.3))));}
+
    if(!current.current.paused){
     if(act!==lastAct){lastAct=act;lastType=0;introCue('act',act);}
     const letters=Math.min(ACTS[act].subtitle.length,Math.floor(local/2.85*ACTS[act].subtitle.length));
     if(letters>lastType&&t-lastClick>.065){introCue('type',act);lastType=letters;lastClick=t;}
     const beat=Math.floor(t*2);if(beat!==lastBeat){lastBeat=beat;introCue('pulse',act);}
     const alarm=Math.floor(t/1.5);if((act===0||act===3)&&alarm!==lastAlarm){lastAlarm=alarm;introCue('alarm',act);}
+    for(let i=0;i<IMPACTS.length;i++)if(t>=IMPACTS[i].at&&!cuedImpacts[i]){cuedImpacts[i]=1;introCue('impact',IMPACTS[i].act);}
+    if(t>=14.5&&!finalePlayed){finalePlayed=true;introCue('finale',3);}
     if(t>15.35&&!glitchPlayed){glitchPlayed=true;introCue('glitch',3);}
    }
    if(now-lastUI>32||t===DURATION){lastUI=now;setElapsed(t);}
@@ -151,18 +198,20 @@ export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOpti
   return()=>{cancelAnimationFrame(raf);engine?.destroy();setIntroAudio(false);setCombatAudio(false);};
  },[started,onComplete]);
  useEffect(()=>{setIntroAudio(started&&!paused);setCombatAudio(started&&!paused);return()=>{setIntroAudio(false);setCombatAudio(false);};},[started,paused]);
- const act=Math.min(3,Math.floor(elapsed/4)),local=elapsed-act*4,scene=ACTS[act],letters=Math.min(scene.subtitle.length,Math.floor(local/2.85*scene.subtitle.length)),montage=Math.min(2,Math.floor(local/(4/3))),exit=elapsed>15.75,amplitude=audioLevel();
- return <section className="cinematic gameplay-trailer industrial-transmission story-cutscene" aria-label="16-second storyline and in-engine cutscene" style={{'--act-color':scene.color}}>
+ const act=Math.min(3,Math.floor(elapsed/4)),local=elapsed-act*4,scene=ACTS[act],letters=Math.min(scene.subtitle.length,Math.floor(local/2.85*scene.subtitle.length)),montage=montageIndex(elapsed),finale=elapsed>=14.5;
+ return <section className="cinematic gameplay-trailer industrial-transmission story-cutscene" aria-label="16-second storyline and in-engine cutscene" ref={root} style={{'--act-color':scene.color}}>
   <style>{STORY_STYLES}</style>
-  <canvas ref={canvas} className="trailer-canvas" aria-label={act<2?`Animated story: ${scene.title}`:`Live engine: ${act===2?MONTAGE[montage].label:'AETHER mainframe boss'}`}/>
-  <header className="story-letterbox story-top"><span className="story-transmission"><span className="status-dot"/>[ INCOMING TRANSMISSION // YEAR 2094 // SECTOR 07 ]</span><div className="story-top-actions"><button className="text-button" onClick={onOptions}><SlidersHorizontal size={12}/> OPTIONS / ESC</button><button className="text-button story-skip" onClick={complete}>[ SKIP CUTSCENE -&gt; ]</button></div></header>
+  <canvas ref={canvas} className="trailer-canvas cinema-source" aria-hidden="true" aria-label={act<2?`Animated story: ${scene.title}`:`Live engine: ${act===2?MONTAGE[montage].label:'AETHER mainframe boss'}`}/>
+  <canvas ref={screen} className="cinema-screen" role="img" aria-label={`Cinematic ${scene.title}`}/>
+  <div className="cinema-lens" aria-hidden="true"/>
+  <header className="story-letterbox story-top"><span className="story-transmission"><span className="status-dot"/>[ INCOMING TRANSMISSION // YEAR 2094 // SECTOR 07 ]</span><div className="cinema-spectrum cinema-spectrum-top" aria-label="32-bar audio frequency visualizer">{WAVE_BARS.map(i=><i key={i} ref={topBars.current[i]}/>)}</div><div className="story-top-actions"><button className="text-button" onClick={onOptions}><SlidersHorizontal size={12}/> OPTIONS / ESC</button><button className="text-button story-skip" onClick={complete}>[ SKIP CUTSCENE -&gt; ]</button></div></header>
   {!started?<div className="neural-boot"><span className="eyebrow lime">PROTOCOL OVERCLOCK / CLASSIFIED TRANSMISSION</span><div className="boot-sigil"><Zap size={40}/></div><h1>Establish your neural link.</h1><p>A 16-second story transmission.<br/>One operative. Three sectors. One rogue AI.</p><button className="primary-button" disabled={booting} onClick={boot}><Volume2 size={16}/>{booting?'CONNECTING AUDIO DEVICE…':'[ ESTABLISH NEURAL LINK // ENABLE AUDIO ]'}</button>{error&&<><p role="alert">Audio activation failed. Retry or continue silently.</p><button className="text-button" onClick={()=>{onSilent?.();setStarted(true);}}>CONTINUE WITHOUT AUDIO <ArrowRight size={13}/></button></>}</div>:<>
    <div className="story-act-heading" key={act}><span className="eyebrow">ACT 0{act+1} / CLASSIFIED STORY UPLINK</span><h2>{scene.title}</h2><small>{scene.tag}</small></div>
    {act===2&&<div className="story-montage-tabs">{MONTAGE.map((shot,i)=><span className={montage===i?'selected':''} key={shot.label}>{shot.label}</span>)}</div>}
    {act===3&&<div className="story-boss-meter"><span>AETHER / THREE SHIELD TETHERS / TERMINATE</span><div><i style={{width:'100%'}}/></div></div>}
    <div className="story-cut-flash" key={`flash-${act}-${act===2?montage:0}`} style={{animationPlayState:paused?'paused':'running'}}/>
-   {exit&&<><div className="story-exit"/><div className="story-cut-flash"/></>}
+   {finale&&<div className="story-grand-finale"><div className="finale-emblem"><span>PROTOCOL:</span><strong>OVERCLOCK</strong><small>UNIT-09 // BREAK THE SYSTEM</small></div></div>}
   </>}
-  <footer className="story-letterbox story-bottom"><div className="story-comms"><div className="story-waveform" aria-label="Cyan voice comms waveform">{WAVE_BARS.map(i=><i key={i} style={{height:started&&!paused?3+Math.abs(Math.sin(elapsed*9+i*.7))*18*(.25+amplitude*.75):3,opacity:started?.8:.3}}/>)}</div><span>{!started?'AWAITING NEURAL LINK':paused?'TRANSMISSION PAUSED':`VOICE COMMS // ${act===0||act===3?'AETHER INTERCEPT':'MISSION CONTROL'}`}</span></div><p className="story-subtitle" aria-label={started?scene.subtitle:'Awaiting transmission'}>{started?scene.subtitle.slice(0,letters):'ESTABLISH THE LINK. RECEIVE YOUR DIRECTIVE.'}<span className="story-cursor" aria-hidden="true"/></p><div className="story-timeline"><div><div className="story-act-ticks">{ACTS.map((item,i)=><span className={i===act?'current':''} key={item.title}>0{i+1} / {['BETRAYAL','UNIT-09','SECTORS','AETHER'][i]}</span>)}</div><div className="story-progress" role="progressbar" aria-label="Cutscene timeline" aria-valuemin={0} aria-valuemax={16} aria-valuenow={Number(elapsed.toFixed(1))}><i style={{width:`${elapsed/DURATION*100}%`}}/></div></div><span className="story-clock">{elapsed.toFixed(1)} / 16.0 SEC</span></div></footer>
+  <footer className="story-letterbox story-bottom"><div className="story-comms"><div className="cinema-spectrum cinema-spectrum-bottom" aria-label="32-bar cyan and green audio frequency visualizer">{WAVE_BARS.map(i=><i key={i} ref={bottomBars.current[i]}/>)}</div><span>{!started?'AWAITING NEURAL LINK':paused?'TRANSMISSION PAUSED':`VOICE COMMS // ${act===0||act===3?'AETHER INTERCEPT':'MISSION CONTROL'}`}</span></div><p className="story-subtitle" aria-label={started?scene.subtitle:'Awaiting transmission'}>{started?scene.subtitle.slice(0,letters):'ESTABLISH THE LINK. RECEIVE YOUR DIRECTIVE.'}<span className="story-cursor" aria-hidden="true"/></p><div className="story-timeline"><div><div className="story-act-ticks">{ACTS.map((item,i)=><span className={i===act?'current':''} key={item.title}>0{i+1} / {['BETRAYAL','UNIT-09','SECTORS','AETHER'][i]}</span>)}</div><div className="story-progress" role="progressbar" aria-label="Cutscene timeline" aria-valuemin={0} aria-valuemax={16} aria-valuenow={Number(elapsed.toFixed(1))}><i style={{width:`${elapsed/DURATION*100}%`}}/></div></div><span className="story-clock">{elapsed.toFixed(1)} / 16.0 SEC</span></div></footer>
  </section>;
 }

@@ -93,9 +93,21 @@ export function introCue(kind,act=0){
   osc.connect(filter);filter.connect(gain);gain.connect(introBus);introNodes.add(osc);osc.onended=()=>{introNodes.delete(osc);osc.disconnect();filter.disconnect();gain.disconnect();};osc.start(t);osc.stop(t+duration+.02);
  }
  const bass=[48,65.4,55,41.2][act]||48;
+ if(kind==='impact'){synth(160,24,.65,'sine',.27);synth(bass*2,28,.32,'sawtooth',.075);return;}
+ if(kind==='finale'){synth(220,22,1.1,'sine',.3);[65.4,98.1,130.8].forEach((f,i)=>synth(f,f*.5,.8,'sawtooth',.065,i*.035));return;}
  if(kind==='type'){synth(1500,650,.027,'square',.014);return;}
  if(kind==='pulse'){synth(bass,bass*.5,.23,'sawtooth',.08);synth(105,28,.16,'sine',.1);return;}
  if(kind==='alarm'){synth(540,950,.24,'triangle',.055);synth(950,540,.24,'triangle',.045,.24);return;}
  if(kind==='act'){synth(bass*3,24,.95,'sine',.26);synth(bass,bass*.5,.8,'sawtooth',.1);[1,1.5,2].forEach((n,i)=>synth((act===1?130.8:82.4)*n,(act===1?261.6:41.2)*n,.7,'triangle',.045,i*.07));}
  if(kind==='glitch'){[0,.045,.11].forEach((delay,i)=>synth(1600-i*350,35,.12,'sawtooth',.08,delay));synth(165,22,.65,'sine',.24);}
+}
+
+// Read the existing analyser into caller-owned buffers for intro-only visualizers.
+let introFrequencyBins;
+export function introFrequencyData(target){
+ if(!analyser||muted){target.fill(0);return target;}
+ if(!introFrequencyBins)introFrequencyBins=new Uint8Array(analyser.frequencyBinCount);
+ analyser.getByteFrequencyData(introFrequencyBins);
+ for(let i=0;i<target.length;i++){const lo=Math.floor((Math.exp(i/target.length*Math.log(introFrequencyBins.length))-1)),hi=Math.max(lo+1,Math.floor(Math.exp((i+1)/target.length*Math.log(introFrequencyBins.length))-1));let value=0;for(let j=lo;j<Math.min(hi,introFrequencyBins.length);j++)value+=introFrequencyBins[j];target[i]=value/Math.max(1,hi-lo);}
+ return target;
 }
