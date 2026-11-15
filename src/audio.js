@@ -73,3 +73,29 @@ export function audioLevel(){if(!analyser||muted)return 0;analyser.getByteTimeDo
 export function setMusicIntensity(phase){intensity=Math.max(1,Math.min(3,phase));}
 
 export function setSfxEnabled(enabled){sfxEnabled=enabled;if(sfxBus)sfxBus.gain.setTargetAtTime(enabled?1:0,context.currentTime,.03);}
+
+// Isolated cutscene bus: pause/skip cancels only story cues, never combat sounds.
+let introBus;
+const introNodes=new Set();
+export function setIntroAudio(enabled){
+ if(!context)return;
+ if(!introBus){introBus=context.createGain();introBus.gain.value=0;introBus.connect(sfxBus);}
+ introBus.gain.setTargetAtTime(enabled?1:0,context.currentTime,.015);
+ if(!enabled){for(const node of introNodes){try{node.stop();}catch{}}introNodes.clear();}
+}
+export function introCue(kind,act=0){
+ if(muted||!sfxEnabled||!context||context.state!=='running'||!introBus)return;
+ function synth(from,to,duration,wave,volume,delay=0){
+  const t=context.currentTime+delay,osc=context.createOscillator(),gain=context.createGain(),filter=context.createBiquadFilter();
+  osc.type=wave;osc.frequency.setValueAtTime(from,t);osc.frequency.exponentialRampToValueAtTime(Math.max(15,to),t+duration);
+  filter.type='lowpass';filter.frequency.setValueAtTime(kind==='type'?2300:1600,t);filter.frequency.exponentialRampToValueAtTime(180,t+duration);
+  gain.gain.setValueAtTime(.001,t);gain.gain.linearRampToValueAtTime(volume,t+.008);gain.gain.exponentialRampToValueAtTime(.001,t+duration);
+  osc.connect(filter);filter.connect(gain);gain.connect(introBus);introNodes.add(osc);osc.onended=()=>{introNodes.delete(osc);osc.disconnect();filter.disconnect();gain.disconnect();};osc.start(t);osc.stop(t+duration+.02);
+ }
+ const bass=[48,65.4,55,41.2][act]||48;
+ if(kind==='type'){synth(1500,650,.027,'square',.014);return;}
+ if(kind==='pulse'){synth(bass,bass*.5,.23,'sawtooth',.08);synth(105,28,.16,'sine',.1);return;}
+ if(kind==='alarm'){synth(540,950,.24,'triangle',.055);synth(950,540,.24,'triangle',.045,.24);return;}
+ if(kind==='act'){synth(bass*3,24,.95,'sine',.26);synth(bass,bass*.5,.8,'sawtooth',.1);[1,1.5,2].forEach((n,i)=>synth((act===1?130.8:82.4)*n,(act===1?261.6:41.2)*n,.7,'triangle',.045,i*.07));}
+ if(kind==='glitch'){[0,.045,.11].forEach((delay,i)=>synth(1600-i*350,35,.12,'sawtooth',.08,delay));synth(165,22,.65,'sine',.24);}
+}
