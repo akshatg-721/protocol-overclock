@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createEngine } from '../src/engine.js';
-import { freshRun, getRank, LEVELS, WEAPON_DAMAGE, ENEMY_HP, purchaseUpgrade, purchasePerk, eligibleHighScore, rankBreakdown, SHARD_COSTS, ENERGY_CAPACITY, enemyShardDrops } from '../src/levels.js';
+import { freshRun, getRank, LEVELS, WEAPON_DAMAGE, ENEMY_HP, purchaseUpgrade, purchasePerk, eligibleHighScore, rankBreakdown, SHARD_COSTS, ENERGY_CAPACITY, enemyShardDrops, createSectorRun, SECTOR_STARTER_SHARDS } from '../src/levels.js';
 
 const originalRandom = Math.random;
 let seed = 73421;
@@ -123,6 +123,18 @@ for(const cut of [0,1,2]){
 }
 {
  const h=harness(1);const before=h.engine.runState();const next=h.engine.grantShards(5000);assert.equal(next.shards,before.shards+5000);assert.equal(next.demo,true);assert.equal(h.engine.snapshot().shards,next.shards);h.close();console.log('PASS live judge wallet grants and demo taint');
+}
+
+{
+ assert.deepEqual(SECTOR_STARTER_SHARDS,{1:0,2:250,3:500});
+ for(const sector of [1,2,3]){
+  const run=createSectorRun(sector);assert.equal(run.shards,SECTOR_STARTER_SHARDS[sector]);assert.equal(run.totalShards,run.shards);assert.deepEqual(run.cleared,[],'No previous completions required');assert.equal(run.demo,sector!==1);assert.equal(run.health,100);
+ }
+ assert.equal(createSectorRun(2,{extraShards:5000}).shards,5250,'Starter bonus stacks with queued grants');
+ assert.equal(createSectorRun(3,{extraShards:5000}).shards,5500);
+ const bossStart=createSectorRun(3);let outfitted=purchaseUpgrade(bossStart,'rate');outfitted=purchaseUpgrade(outfitted,'hull');assert.equal(outfitted.shards,340);assert.equal(outfitted.health,140,'Boss starter kit funds a useful loadout');
+ assert.throws(()=>createSectorRun(4),RangeError);
+ console.log('PASS unlocked sector starts, 250/500 starter bonuses, queued grants and starter loadouts');
 }
 
 Math.random=originalRandom;

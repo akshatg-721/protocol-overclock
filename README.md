@@ -12,6 +12,10 @@ npm run build
 npm run preview
 ```
 
+## Unlocked sector selection
+
+All sectors are playable immediately from the title cards or the HUD’s **SECTOR: 01 / 02 / 03 / SHOP** shortcuts, without God Mode or previous completions. Direct Sector 02 starts with **250 shards**; Sector 03 starts with **500 shards**. Use SHOP to equip upgrades and redeploy the current sector. Switching sectors starts a fresh run; direct later-sector runs protect campaign Personal Best by counting as practice.
+
 ## Options / Tactical Menu
 
 Use **OPTIONS / ESC** from the HUD or trailer, the title/pause Options buttons, or Escape at any time. The menu pauses combat and the trailer, traps keyboard focus, and scrolls internally rather than scrolling the page. Its tabs contain:

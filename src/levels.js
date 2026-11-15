@@ -22,6 +22,12 @@ export const PERKS=[
 ];
 export function enemyShardDrops(type,rng=Math.random){const elite=type==='charger'||type==='mortar';const count=(elite?8:2)+Math.floor(rng()*(elite?3:2));return Array.from({length:count},()=>20+Math.floor(rng()*6));}
 export function freshRun(){return {score:0,bank:0,kills:0,shards:0,totalShards:0,elapsed:0,damageTaken:0,health:100,upgrades:{damage:0,hull:0,energy:0,rate:0},achievements:[],cleared:[],demo:false,perk:null,fatalThreat:null};}
+export const SECTOR_STARTER_SHARDS={1:0,2:250,3:500};
+export function createSectorRun(sector,{godMode=false,judgeRun=false,extraShards=0}={}){
+ if(!LEVELS.some(level=>level.id===sector))throw new RangeError('Unknown sector');
+ const run=freshRun();run.starterShards=SECTOR_STARTER_SHARDS[sector];run.shards=run.starterShards+Math.max(0,extraShards);run.totalShards=run.shards;run.demo=godMode||judgeRun||sector!==1||extraShards>0;
+ return run;
+}
 export function purchaseUpgrade(run,id){if(!UPGRADES.some(u=>u.id===id))return run;const tier=run.upgrades[id],cost=SHARD_COSTS[tier];if(tier>=3||run.shards<cost)return run;return {...run,shards:run.shards-cost,health:id==='hull'?100+(tier+1)*40:run.health,upgrades:{...run.upgrades,[id]:tier+1}};}
 export function purchasePerk(run,id){const item=PERKS.find(p=>p.id===id);if(!item||run.perk===id||run.shards<item.shards)return run;return {...run,shards:run.shards-item.shards,perk:id};}
 export function rankBreakdown(run,victory){const timeBonus=Math.max(0,Math.round((240-run.elapsed)*12)),damagePenalty=Math.round(run.damageTaken*12),value=Math.max(0,run.score+timeBonus-damagePenalty);return {score:run.score,timeBonus,damagePenalty,value,rank:!victory?(value>=6000?'B':'C'):value>=15000?'S':value>=10000?'A':value>=5000?'B':'C',formula:'Score + max(0, round((240 − seconds) × 12)) − (damage taken × 12). Victory: S ≥15000 / A ≥10000 / B ≥5000 / C <5000. Defeat: B ≥6000, otherwise C.'};}

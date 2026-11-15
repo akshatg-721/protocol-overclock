@@ -3,7 +3,7 @@ import { UPGRADES, LEVELS, PERKS, WEAPON_DAMAGE, SHARD_COSTS, ENERGY_CAPACITY } 
 const icons={weapon:Crosshair,shield:Shield,energy:Zap,rate:Gauge};
 export default function UpgradeShop({run,level,nextLevel=level+1,admin=false,onBuy,onEquip,onContinue,onOptions}){
  return <div className="modal-backdrop shop-backdrop"><section className="shop-panel" role="dialog" aria-modal="true" aria-labelledby="shop-title">
- <div className="shop-top"><span className="eyebrow lime"><Check size={14}/>{admin?'JUDGE ARMORY / PRACTICE RUN':`SECTOR 0${level} SECURED / ALL DATA RECOVERED`}</span><button className="text-button" onClick={onOptions}>OPTIONS / ESC</button></div>
+ <div className="shop-top"><span className="eyebrow lime"><Check size={14}/>{admin?'FIELD ARMORY / PRACTICE RUN':`SECTOR 0${level} SECURED / ALL DATA RECOVERED`}</span><button className="text-button" onClick={onOptions}>OPTIONS / ESC</button></div>
  <div className="shop-heading"><div><span className="eyebrow">BETWEEN-LEVEL UPLINK</span><h2 id="shop-title">Upgrade armory<span className="lime">.</span></h2><p>Power comes in shards. Build a loadout worth bringing back.</p></div><div className="bank"><span className="eyebrow">AVAILABLE SHARDS</span><strong>{run.shards.toLocaleString()} <span>◇</span></strong></div></div>
  <div className="armory-summary"><span>RUN SCORE <b>{run.score.toLocaleString()}</b></span><span>HULL <b>{Math.ceil(run.health)}/{100+run.upgrades.hull*40}</b></span>{!admin&&<span>SECTOR SALVAGE <b>+{run.lastSectorShards||0}</b></span>}<span>TIER COSTS <b>80 / 140 / 220 ◇</b></span></div>
  <div className="upgrade-grid">{UPGRADES.map(u=>{const Icon=icons[u.icon],tier=run.upgrades[u.id],next=Math.min(3,tier+1),cost=SHARD_COSTS[tier],max=tier>=3,afford=!max&&run.shards>=cost;
