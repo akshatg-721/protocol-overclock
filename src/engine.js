@@ -355,7 +355,7 @@ export function createEngine(canvas, options) {
       if (!consumed && b.enemy && dist(b, player) < 15) { hurt(b.damage,b.cause); consumed = true; }
       if (!consumed && !b.enemy) {
         for (const enemy of enemies) if (!enemy.dead && dist(b, enemy) < enemy.radius + 4) {
-          const critical = overclock && dist(player,enemy)<150; const damage = b.damage * (critical ? 1.65 : 1); enemy.hp -= damage; if(critical) number(enemy.x,enemy.y-35,'CRIT!','#fff6b3'); sound('hit'); consumed = true; burst(b.x, b.y, enemy.color, 10, Math.atan2(b.vy, b.vx)); number(enemy.x, enemy.y - 15, Math.round(damage), '#e7e9e2');
+          const critical = overclock && dist(player,enemy)<150; const damage = b.damage * (critical ? 1.65 : 1); enemy.hp -= damage; if(critical) number(enemy.x,enemy.y-35,'CRIT!','#fff6b3'); sound(critical?'crit':'hit'); consumed = true; burst(b.x, b.y, enemy.color, 10, Math.atan2(b.vy, b.vx)); number(enemy.x, enemy.y - 15, Math.round(damage), '#e7e9e2');
           if (enemy.hp <= 0) kill(enemy);
           break;
         }
@@ -382,7 +382,7 @@ export function createEngine(canvas, options) {
   function emitter(r){return {x:r.x<600?65:1135,y:r.y};}
   function laserAngle(r){const e=emitter(r);return Math.atan2(380-e.y,600-e.x)+Math.sin(worldTime*.7+r.id)*.65;}
   function updateBoss(dt){
-    setMusicIntensity(boss.phase);
+    setMusicIntensity(boss.phase,true);
     const next=boss.hp/boss.maxHp>.67?1:boss.hp/boss.maxHp>.34?2:3;
     if(next!==boss.phase){boss.phase=next;boss.phaseFlash=2;boss.phaseLock=3;boss.phaseTime=0;boss.timer=.2;hitStop=.12;shake=18;burst(boss.x,boss.y,'#ff946d',55);sound('bossPhase');}
     boss.phaseTime+=dt;boss.phaseLock=Math.max(0,boss.phaseLock-dt);boss.phaseFlash=Math.max(0,boss.phaseFlash-dt);boss.beam+=dt*.43;
