@@ -21,7 +21,7 @@ All sectors are playable immediately from the title cards or the HUD’s **SECTO
 Use **OPTIONS / ESC** from the HUD or trailer, the title/pause Options buttons, or Escape at any time. The menu pauses combat and the trailer, traps keyboard focus, and scrolls internally rather than scrolling the page. Its tabs contain:
 
 - **Mission Directory:** inspect or deploy into any of the three sectors. Direct sector deployment is a practice run.
-- **Controls & How to Play:** movement, shooting, armor decryption, hazards, shard collection, abilities and boss phases.
+- **Controls & How to Play:** SVG tactical diagrams for movement/aim, ring breaches, bullet-time, dash/EMP and sector threats. Seven remappable actions update combat, HUD badges and on-canvas prompts immediately. Click an action, then press a key; Escape cancels. Duplicate keys are rejected. Presets: WASD/Space, arrows/Z/X (C = EMP), or left-handed IJKL/Space/Control/O. Reset restores defaults. Bindings persist in `overclock-keybindings-v1`; invalid saved data recovers defaults.
 - **Audio & Display:** independent SFX and combat bassline switches, plus native fullscreen. Browser permission restrictions may block native fullscreen; the game still fills its viewport.
 - **Judge / God Mode:** Infinite Integrity, +5,000 shards, complete sector, jump to the armory, or replay the trailer. Judge changes taint the run and cannot overwrite legitimate Personal Best. Grants made at the title are applied to the next deployment; a direct armory jump redeploys the current sector with the edited loadout.
 

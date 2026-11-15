@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { createEngine } from './engine';
+import { DEFAULT_BINDINGS, keyLabel } from './controls';
 
 const GameCanvas = forwardRef(function GameCanvas(props, ref) {
   const canvas = useRef(null);
@@ -11,6 +12,7 @@ const GameCanvas = forwardRef(function GameCanvas(props, ref) {
     engine.current = createEngine(canvas.current, {
       ...current.current,
       handleEscape: false,
+      getBindings: () => current.current.bindings || DEFAULT_BINDINGS,
       isPaused: () => current.current.paused,
       isGod: () => current.current.godMode,
       isTouchOverclock: () => current.current.touchOverclock,
@@ -22,6 +24,8 @@ const GameCanvas = forwardRef(function GameCanvas(props, ref) {
     });
     return () => engine.current?.destroy();
   }, [props.session, props.level, props.active]);
-  return <canvas ref={canvas} className="game-canvas" aria-label="Protocol Overclock game arena. WASD to move, aim and hold mouse to fire, Space for Overclock, Q for EMP, Shift or right click for Cyber Dash, Escape to pause." tabIndex={0} />;
+  useEffect(() => { engine.current?.clearInput(); }, [props.bindings, props.paused]);
+  const binding=props.bindings||DEFAULT_BINDINGS;
+  return <canvas ref={canvas} className="game-canvas" aria-label={`Protocol Overclock game arena. Move ${[binding.up,binding.left,binding.down,binding.right].map(keyLabel).join(" / ")}. Mouse aim and fire. ${keyLabel(binding.overclock)} Overclock, ${keyLabel(binding.emp)} EMP, ${keyLabel(binding.dash)} Dash. Escape tactical menu.`} tabIndex={0} />;
 });
 export default GameCanvas;

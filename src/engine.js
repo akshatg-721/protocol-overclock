@@ -1,3 +1,4 @@
+import { DEFAULT_BINDINGS, normalizeKey, actionHeld, actionKeys, keyLabel } from './controls.js';
 import { sound, setOverclockAudio, setMusicIntensity } from './audio.js';
 import { LEVELS, WEAPON_DAMAGE, ENEMY_HP, ENERGY_CAPACITY, RELAY_SHARDS, SECTOR_CLEAR_SHARDS, enemyShardDrops } from './levels.js';
 
@@ -14,6 +15,9 @@ export function createEngine(canvas, options) {
   const upgrades = run.upgrades;
   const player = { x: 600, y: 450, hp: Math.min(options.run.health ?? 100, 100 + upgrades.hull * 40), maxHp: 100 + upgrades.hull * 40, energy: ENERGY_CAPACITY[upgrades.energy], maxEnergy: ENERGY_CAPACITY[upgrades.energy], angle: -.8, invuln: 0 };
   const keys = new Set();
+  const bindings = () => options.getBindings?.() || DEFAULT_BINDINGS;
+  const held = action => actionHeld(keys,bindings(),action);
+  const badge = action => keyLabel(bindings()[action]);
   const pointer = { x: 840, y: 260, down: false, inside: false };
   let clock = 0, shotTimer = 0, spawnTimer = 1.5, empCooldown = 0, combo = 1, comboTimer = 0, chain = 0;
   let shake = 0, hitStop = 0, lastFrame = 0, frame, hudTime = 0, done = false, overclockWasOn = false;
@@ -50,13 +54,16 @@ export function createEngine(canvas, options) {
   function keydown(e) {
     if (options.trailer || !active || done || finale || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
     if(options.isPaused()&&e.code!=='Escape')return;
-    if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-    if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) dash();
-    if (e.code === 'Escape' && !e.repeat && options.handleEscape!==false) options.onPause();
-    if (e.code === 'KeyQ' && !e.repeat && !options.isPaused()) emp();
-    keys.add(e.code);
+    const code=normalizeKey(e.code);
+    const action=Object.keys(DEFAULT_BINDINGS).find(id=>actionKeys(bindings(),id).includes(code));
+    if(action || code==='Space' || code.startsWith('Arrow')) e.preventDefault();
+    if(e.metaKey)return;
+    keys.add(code);
+    if(action==='dash'&&!e.repeat)dash();
+    if(action==='emp'&&!e.repeat)emp();
+    if(code==='Escape'&&!e.repeat&&options.handleEscape!==false)options.onPause();
   }
-  function keyup(e) { keys.delete(e.code); }
+  function keyup(e) { keys.delete(normalizeKey(e.code)); }
   function pointermove(e) {
     if (e.pointerType === 'touch' && touch.id === e.pointerId) {
       touch.x = clamp((e.clientX - touch.startX) / 42, -1, 1); touch.y = clamp((e.clientY - touch.startY) / 42, -1, 1);
@@ -136,7 +143,7 @@ export function createEngine(canvas, options) {
   function dash() {
     if (!active || done || finale || options.isPaused() || dashCooldown > 0) return;
     dashCooldown = run.perk === 'dash' ? 1.7 : 3; dashTime = .19; player.invuln = run.perk==='dash'?.5:.32;
-    const dx = Number(keys.has('KeyD')||keys.has('ArrowRight')) - Number(keys.has('KeyA')||keys.has('ArrowLeft')) + touch.x, dy = Number(keys.has('KeyS')||keys.has('ArrowDown')) - Number(keys.has('KeyW')||keys.has('ArrowUp'))+touch.y;
+    const dx = Number(held('right')) - Number(held('left')) + touch.x, dy = Number(held('down')) - Number(held('up'))+touch.y;
     dashAngle = dx || dy ? Math.atan2(dy, dx) : player.angle;
     sound('dash'); burst(player.x, player.y, '#79d9f4', 28, dashAngle + Math.PI);
   }
@@ -203,7 +210,7 @@ export function createEngine(canvas, options) {
     player.invuln -= dt; shotTimer -= dt; empCooldown = Math.max(0, empCooldown - dt); laserHit = Math.max(0, laserHit - dt);
     comboTimer = Math.max(0, comboTimer - dt);
     if (comboTimer === 0) { combo = 1; chain = 0; }
-    const overclockRequested = keys.has('Space') || options.isTouchOverclock?.();
+    const overclockRequested = held('overclock') || !!options.isTouchOverclock?.();
     if (!overclockRequested) overclockExhausted = false;
     if (player.energy <= 1) overclockExhausted = true;
     const overclock = overclockRequested && !overclockExhausted && player.energy > 1;
@@ -214,8 +221,8 @@ export function createEngine(canvas, options) {
     for(const r of relays)if(r.hp>0&&dist(player,r)<level.range){if(overclock||dashTime>0)r.phaseAccess=true;if(level.id!==2||r.phaseAccess)r.hack=Math.min(level.hackTime,r.hack+dt);}
     player.energy = clamp(player.energy + (overclock ? -29 : 14 + upgrades.energy * 3) * dt, 0, player.maxEnergy);
     const enemyDt = dt * (overclock ? .4 : 1);
-    let dx = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')) + touch.x;
-    let dy = Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')) + touch.y;
+    let dx = Number(held('right')) - Number(held('left')) + touch.x;
+    let dy = Number(held('down')) - Number(held('up')) + touch.y;
     const length = Math.hypot(dx, dy);
     if (length > 1) { dx /= length; dy /= length; }
     const nx = clamp(player.x + dx * 245 * dt, 57, W - 57), ny = clamp(player.y + dy * 245 * dt, 57, H - 57);
@@ -440,7 +447,7 @@ export function createEngine(canvas, options) {
       for(let i=0;i<32;i++){const a=i*TAU/32,r=220+(clock*430+i*43)%480;path([[px+Math.cos(a)*r,py+Math.sin(a)*r],[px+Math.cos(a)*(r+70),py+Math.sin(a)*(r+70)]]);ctx.strokeStyle='#8ce8e133';ctx.lineWidth=1.5;ctx.stroke();}
     }
     for(const ghost of ghosts){ctx.save();ctx.globalAlpha=ghost.life*.9;ctx.translate(ghost.x,ghost.y);ctx.rotate(ghost.angle);glow('#bdf578',18);ctx.fillRect(-13,-11,28,22);ctx.restore();}
-    if(active&&!options.trailer) label(`SHIFT / DASH ${dashCooldown>0?dashCooldown.toFixed(1)+'s':'READY'}`,W-80,H-47,'#8cc9d0',9);
+    if(active&&!options.trailer) label(`${badge('dash')} / DASH ${dashCooldown>0?dashCooldown.toFixed(1)+'s':'READY'}`,W-80,H-47,'#8cc9d0',9);
 
     ctx.save(); ctx.translate(px, py);
     glow(overclockWasOn ? '#8eeaff' : '#c2f66e', 15); ctx.lineWidth = 1;
@@ -470,8 +477,8 @@ export function createEngine(canvas, options) {
     if (!active) { label('OPERATIVE / 01', px, py + 46, '#b9dc8f88', 8); }
     // Inset vignette keeps the neon readable without raster assets.
     const vignette = ctx.createRadialGradient(600, 380, 200, 600, 380, 730); vignette.addColorStop(0, '#00000000'); vignette.addColorStop(1, '#03090955'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
-    if(active&&!options.trailer&&clock<3){ctx.fillStyle='#101c21e8';ctx.fillRect(180,100,840,70);label('MOVE: WASD / ARROWS | DASH: SHIFT | SHOOT GOLD RELAYS',600,129,'#d9edb4',17);label(level.id===2?'DASH INTO GOLD RINGS OR HOLD SPACE TO DECRYPT': 'ENTER GOLD RINGS TO DECRYPT · RED TARGET RINGS MEAN MOVE NOW',600,153,'#ffc76d',12);}
-    if(overclockExhausted&&active)label('ENERGY DEPLETED / RELEASE SPACE TO REARM',600,690,'#79d9f4',13);
+    if(active&&!options.trailer&&clock<3){ctx.fillStyle='#101c21e8';ctx.fillRect(180,100,840,70);label(`MOVE: ${['up','left','down','right'].map(badge).join('/')} | DASH: ${badge('dash')} | SHOOT GOLD RELAYS`,600,129,'#d9edb4',17);label(level.id===2?`DASH INTO GOLD RINGS OR HOLD ${badge('overclock')} TO DECRYPT`: 'ENTER GOLD RINGS TO DECRYPT · RED TARGET RINGS MEAN MOVE NOW',600,153,'#ffc76d',12);}
+    if(overclockExhausted&&active)label(`ENERGY DEPLETED / RELEASE ${badge('overclock')} TO REARM`,600,690,'#79d9f4',13);
     if(finale){ctx.fillStyle='#0c161dcc';ctx.fillRect(140,300,920,135);label(level.id===3?'MAINFRAME TERMINATED':'SECTOR CLEARED',600,352,'#d8ff9b',38);label('+150 SHARD SECTOR CLEAR BONUS · RECOVERING ALL DATA',600,391,'#79d9f4',14);label(`UPLINK IN ${Math.max(0,2.2-finale.time).toFixed(1)}s`,600,415,'#ffc76d',12);}
     ctx.restore();
   }
@@ -485,7 +492,7 @@ export function createEngine(canvas, options) {
     for(const r of relays)if(r.hp>0){
       const near=dist(player,r)<=level.range,open=(r.broken&&dist(player,r)<=350)||(near&&r.hack>=level.hackTime);ctx.strokeStyle=open?'#ffc76d77':'#ffc76d35';ctx.setLineDash([8,10]);ctx.beginPath();ctx.arc(r.x,r.y,r.broken?350:level.range,0,TAU);ctx.stroke();ctx.setLineDash([]);
       const pulse=42+Math.sin(clock*4)*3;glow('#ffc76d',10);ctx.lineWidth=2;for(let i=0;i<4;i++){const a=i*TAU/4+Math.PI/4,x=r.x+Math.cos(a)*pulse,y=r.y+Math.sin(a)*pulse;path([[x-8,y],[x,y],[x,y+8]]);ctx.stroke();}
-      if(active){label(`[ TARGET 0${r.id+1} ]`,r.x,r.y-80,'#ffda8c',13);label(open?'ARMOR EXPOSED':r.broken?'BREACHED / ADVANCE TO GOLD RING':near&&level.id===2&&!r.phaseAccess?'PHASE LOCK / DASH OR SPACE':near?`DECRYPT ${Math.round(r.hack/level.hackTime*100)}%`:'ENTER PROXIMITY RING',r.x,r.y+82,'#ffda8c',11);}
+      if(active){label(`[ TARGET 0${r.id+1} ]`,r.x,r.y-80,'#ffda8c',13);label(open?'ARMOR EXPOSED':r.broken?'BREACHED / ADVANCE TO GOLD RING':near&&level.id===2&&!r.phaseAccess?`PHASE LOCK / ${badge('dash')} OR ${badge('overclock')}`:near?`DECRYPT ${Math.round(r.hack/level.hackTime*100)}%`:'ENTER PROXIMITY RING',r.x,r.y+82,'#ffda8c',11);}
       if(level.id===2){const emitter={x:r.x<600?65:1135,y:r.y};glow('#ffc76d',8);ctx.lineWidth=2;path([[r.x,r.y],[emitter.x,emitter.y]]);ctx.stroke();ctx.strokeRect(emitter.x-10,emitter.y-10,20,20);}
       if(active&&!finale&&dist(player,r)>300){const a=Math.atan2(r.y-player.y,r.x-player.x),x=clamp(player.x+Math.cos(a)*235,80,W-80),y=clamp(player.y+Math.sin(a)*235,90,H-90);ctx.save();ctx.translate(x,y);ctx.rotate(a);glow('#ffc76d',8);path([[11,0],[-5,-7],[-5,7]],true);ctx.fill();ctx.restore();label(`0${r.id+1}`,x,y+20,'#ffda8c',12);}
     }
@@ -516,6 +523,7 @@ export function createEngine(canvas, options) {
   frame = requestAnimationFrame(animate);
   return {
     emp, dash,
+    clearInput(){keys.clear();pointer.down=false;touch.x=0;touch.y=0;},
     runState(){return structuredClone({...run,health:player.hp});},
     markDemo(){run.demo=true;options.onHud(snapshot());},
     grantShards(amount){run.demo=true;run.shards+=amount;run.totalShards+=amount;options.onHud(snapshot());return structuredClone({...run,health:player.hp});},

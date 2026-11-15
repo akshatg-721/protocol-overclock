@@ -1,3 +1,4 @@
+import { DEFAULT_BINDINGS, PRESETS, bindKey, loadBindings, saveBindings, keyLabel, actionKeys } from '../src/controls.js';
 import assert from 'node:assert/strict';
 import { createEngine } from '../src/engine.js';
 import { freshRun, getRank, LEVELS, WEAPON_DAMAGE, ENEMY_HP, purchaseUpgrade, purchasePerk, eligibleHighScore, rankBreakdown, SHARD_COSTS, ENERGY_CAPACITY, enemyShardDrops, createSectorRun, SECTOR_STARTER_SHARDS } from '../src/levels.js';
@@ -137,4 +138,29 @@ for(const cut of [0,1,2]){
  console.log('PASS unlocked sector starts, 250/500 starter bonuses, queued grants and starter loadouts');
 }
 
+// Saved remaps drive the real engine immediately, without restarting a sector.
+{
+ const store=new Map(),storage={getItem:k=>store.get(k),setItem:(k,v)=>store.set(k,v)};
+ assert.deepEqual(loadBindings(storage),DEFAULT_BINDINGS);
+ for(const preset of PRESETS){assert.equal(new Set(Object.values(preset.bindings)).size,7);saveBindings(preset.bindings,storage);assert.deepEqual(loadBindings(storage),preset.bindings);}
+ assert.ok(bindKey(DEFAULT_BINDINGS,'dash','Space').error,'Duplicate action rejected');
+ assert.ok(bindKey(DEFAULT_BINDINGS,'dash','Escape').error,'Escape stays reserved');
+ assert.equal(bindKey(DEFAULT_BINDINGS,'dash','ControlRight').bindings.dash,'Control');
+ assert.equal(keyLabel('ArrowUp'),'↑');
+ const conflict=bindKey(DEFAULT_BINDINGS,'emp','ArrowUp').bindings;
+ assert.deepEqual(actionKeys(conflict,'up'),['KeyW'],'Arrow aliases cannot conflict');
+ let bindings={...DEFAULT_BINDINGS};
+ const h=harness(1,true,{},null,{getBindings:()=>bindings});
+ h.key('KeyD');h.step(.15);h.key('KeyD',false);const x=h.engine.snapshot().playerX;
+ bindings={...PRESETS[1].bindings};h.engine.clearInput();
+ h.key('KeyD');h.step(.1);h.key('KeyD',false);assert.equal(h.engine.snapshot().playerX,x,'Old movement key is inactive');
+ h.key('ArrowRight');h.step(.1);h.key('ArrowRight',false);assert.ok(h.engine.snapshot().playerX>x,'New movement key works');
+ h.key('Space');h.step(.1);h.key('Space',false);assert.equal(h.engine.snapshot().overclock,false,'Old ability key is inactive');
+ h.key('KeyZ');h.step(.2);assert.equal(h.engine.snapshot().overclock,true,'New Overclock key works');h.key('KeyZ',false);
+ h.key('ArrowLeft');const before=h.engine.snapshot().playerX;h.key('KeyX');h.step(.15);h.key('ArrowLeft',false);h.key('KeyX',false);assert.ok(h.engine.snapshot().playerX<before-70,'Remapped dash respects movement');
+ h.key('KeyC');assert.ok(h.engine.snapshot().empCooldown>11,'Remapped EMP works');h.key('KeyC',false);
+ bindings={...PRESETS[2].bindings};h.engine.clearInput();h.step(3.1);h.key('KeyL');h.key('ControlRight');assert.ok(h.engine.snapshot().dashCooldown>2.8,'Either modifier side works');h.engine.clearInput();h.step(.5);assert.equal(h.engine.snapshot().overclock,false);h.close();
+ store.set('overclock-keybindings-v1','{"up":"KeyA"}');assert.deepEqual(loadBindings(storage),DEFAULT_BINDINGS,'Corrupt settings recover defaults');
+ console.log('PASS remap persistence, presets, conflict rejection, modifier keys, live movement/dash/EMP/Overclock');
+}
 Math.random=originalRandom;
