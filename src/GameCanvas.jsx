@@ -6,10 +6,11 @@ const GameCanvas = forwardRef(function GameCanvas(props, ref) {
   const engine = useRef(null);
   const current = useRef(props);
   current.current = props;
-  useImperativeHandle(ref, () => ({ emp: () => engine.current?.emp(), dash: () => engine.current?.dash(), complete: () => engine.current?.complete(), snapshot: () => engine.current?.snapshot() }), []);
+  useImperativeHandle(ref, () => ({ emp: () => engine.current?.emp(), dash: () => engine.current?.dash(), complete: () => engine.current?.complete(), grantShards: amount => engine.current?.grantShards(amount), markDemo: () => engine.current?.markDemo(), runState: () => engine.current?.runState(), snapshot: () => engine.current?.snapshot() }), []);
   useEffect(() => {
     engine.current = createEngine(canvas.current, {
       ...current.current,
+      handleEscape: false,
       isPaused: () => current.current.paused,
       isGod: () => current.current.godMode,
       isTouchOverclock: () => current.current.touchOverclock,

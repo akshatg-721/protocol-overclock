@@ -1,5 +1,5 @@
 import { sound, setOverclockAudio, setMusicIntensity } from './audio.js';
-import { LEVELS, WEAPON_DAMAGE, ENEMY_HP } from './levels.js';
+import { LEVELS, WEAPON_DAMAGE, ENEMY_HP, ENERGY_CAPACITY, RELAY_SHARDS, SECTOR_CLEAR_SHARDS, enemyShardDrops } from './levels.js';
 
 const W = 1200, H = 760;
 const TAU = Math.PI * 2;
@@ -12,7 +12,7 @@ export function createEngine(canvas, options) {
   const level = LEVELS[options.level - 1];
   const run = structuredClone(options.run);
   const upgrades = run.upgrades;
-  const player = { x: 600, y: 450, hp: Math.min(options.run.health ?? 100, 100 + upgrades.hull * 40), maxHp: 100 + upgrades.hull * 40, energy: 100 + upgrades.energy * 40, maxEnergy: 100 + upgrades.energy * 40, angle: -.8, invuln: 0 };
+  const player = { x: 600, y: 450, hp: Math.min(options.run.health ?? 100, 100 + upgrades.hull * 40), maxHp: 100 + upgrades.hull * 40, energy: ENERGY_CAPACITY[upgrades.energy], maxEnergy: ENERGY_CAPACITY[upgrades.energy], angle: -.8, invuln: 0 };
   const keys = new Set();
   const pointer = { x: 840, y: 260, down: false, inside: false };
   let clock = 0, shotTimer = 0, spawnTimer = 1.5, empCooldown = 0, combo = 1, comboTimer = 0, chain = 0;
@@ -31,7 +31,8 @@ export function createEngine(canvas, options) {
   const zones=[], wreckage=[];
   let worldTime=0, hazardTimer=4, lastVelocity={x:0,y:0}, lastPlayer={x:600,y:450}, shieldTimer=0;
   let shotSerial=0, spawnSerial=0;
-  let finale=null, scoredKills=0, lastHint=-10, impactName='Hostile contact';
+  let finale=null, scoredKills=0, lastHint=-10;
+  const sectorShardStart=run.totalShards||0;let pickupPending=0,pickupLast=-1,collectSoundLast=-1;const trailerEvents=new Set();
   const touch = { id: null, startX: 0, startY: 0, x: 0, y: 0 };
   let touchAim = null;
 
@@ -47,10 +48,11 @@ export function createEngine(canvas, options) {
     return { x: (event.clientX - rect.left - (rect.width - W * scale) / 2) / scale, y: (event.clientY - rect.top - (rect.height - H * scale) / 2) / scale };
   }
   function keydown(e) {
-    if (!active || done || finale || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if (options.trailer || !active || done || finale || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if(options.isPaused()&&e.code!=='Escape')return;
     if (['Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && !e.repeat) dash();
-    if (e.code === 'Escape' && !e.repeat) options.onPause();
+    if (e.code === 'Escape' && !e.repeat && options.handleEscape!==false) options.onPause();
     if (e.code === 'KeyQ' && !e.repeat && !options.isPaused()) emp();
     keys.add(e.code);
   }
@@ -61,7 +63,7 @@ export function createEngine(canvas, options) {
     } else { Object.assign(pointer, coords(e)); pointer.inside = true; }
   }
   function pointerdown(e) {
-    if (!active || finale) return;
+    if (options.trailer || !active || finale) return;
     canvas.focus();
     if (e.button === 2) { e.preventDefault(); dash(); return; }
     if (e.pointerType === 'touch' && coords(e).x < W / 2) {
@@ -100,7 +102,7 @@ export function createEngine(canvas, options) {
     combo = Math.min(8, 1 + Math.floor(chain / 2)); const earned=scoredKills++<24?award(enemy.type==='gunner'?180:120):0;
     burst(enemy.x, enemy.y, enemy.color, 36, Math.atan2(enemy.y - player.y, enemy.x - player.x));
     number(enemy.x, enemy.y - 18, earned?`+${earned}`:'SECTOR SCORE CAP');
-    if(scoredKills<=24) shards.push({ x: enemy.x, y: enemy.y, age: 0 }); wreckage.push({x:enemy.x,y:enemy.y,r:20,color:enemy.color});
+    for(const value of enemyShardDrops(enemy.type))shards.push({x:enemy.x+rand(-15,15),y:enemy.y+rand(-15,15),age:0,value}); wreckage.push({x:enemy.x,y:enemy.y,r:20,color:enemy.color});
     if(overclockWasOn) number(enemy.x,enemy.y-45,`OVERCLOCK x${combo}!`,'#79d9f4');
     shake = Math.max(shake, 4); hitStop = .035; sound('explode');
     if (run.kills === 1) toast('first', 'FIRST CONTACT', 'First hostile eliminated. Welcome to the network.');
@@ -116,7 +118,7 @@ export function createEngine(canvas, options) {
   }
   function finish(won) {
     if(done || finale) return;
-    if(won){finale={time:0,nextBurst:0};keys.clear();pointer.down=false;run.cleared=[...new Set([...(run.cleared||[]),level.id])];setOverclockAudio(false);sound('victory');return;}
+    if(won){run.shards+=SECTOR_CLEAR_SHARDS;run.totalShards+=SECTOR_CLEAR_SHARDS;finale={time:0,nextBurst:0};keys.clear();pointer.down=false;run.cleared=[...new Set([...(run.cleared||[]),level.id])];setOverclockAudio(false);sound('victory');return;}
     deliver(false);
   }
   function deliver(won) {
@@ -128,7 +130,7 @@ export function createEngine(canvas, options) {
       toast(`level-${level.id}`, level.id === 3 ? 'PROTOCOL TERMINATED' : 'SECTOR SECURED', level.id === 3 ? 'The mainframe is yours.' : `${level.name} cleared. +1,000 base score.`);
     }
     options.onHud(snapshot());
-    run.health=player.hp; run.termination=won?'AETHER core destroyed after all shield links severed':run.fatalThreat;
+    run.lastSectorShards=run.totalShards-sectorShardStart;run.health=player.hp; run.termination=won?'AETHER core destroyed after all shield links severed':run.fatalThreat;
     options.onEnd({ won, run, health: player.hp });
   }
   function dash() {
@@ -141,7 +143,7 @@ export function createEngine(canvas, options) {
   function emp() {
     if (!active || done || finale || empCooldown > 0 || options.isPaused()) return;
     empCooldown = 12; empRing = .65; shake = 9; sound('emp');
-    for (const enemy of enemies) if (!enemy.dead && dist(player, enemy) < 270) { enemy.hp -= 105; if (enemy.hp <= 0) kill(enemy); }
+    for (const enemy of enemies) if (!enemy.dead && dist(player, enemy) < 270) { enemy.hp -= 105+upgrades.damage*20; if (enemy.hp <= 0) kill(enemy); }
     for (const relay of relays) if (relay.hp > 0 && dist(player, relay) < 270) damageRelay(relay, 95);
     if (level.id === 3 && bossPhase && boss.phaseLock<=0 && dist(player, boss) < 320) { boss.hp = Math.max(0, boss.hp - 160); if (boss.hp === 0) finish(true); }
     empOrigin={x:player.x,y:player.y}; empReached=0;
@@ -153,7 +155,7 @@ export function createEngine(canvas, options) {
     }
     relay.hp -= damage; burst(relay.x, relay.y, level.color, 5); number(relay.x + rand(-12, 12), relay.y - 30, Math.round(damage), '#e2e9d9');
     if (relay.hp <= 0) {
-      destroyed++; award(650,false); for(let i=0;i<3;i++)shards.push({x:relay.x+rand(-15,15),y:relay.y+rand(-15,15),age:0}); wreckage.push({x:relay.x,y:relay.y,r:45,color:level.color});
+      destroyed++; award(650,false); for(let i=0;i<RELAY_SHARDS;i++)shards.push({x:relay.x+rand(-35,35),y:relay.y+rand(-35,35),age:0,value:1}); wreckage.push({x:relay.x,y:relay.y,r:45,color:level.color});
       burst(relay.x, relay.y, level.color, 36); rings.push({ x: relay.x, y: relay.y, life: .5, color: level.color });
       sound('explode'); shake = 8; hitStop = .055;
       if (destroyed === level.target) {
@@ -179,7 +181,7 @@ export function createEngine(canvas, options) {
     return covers.some(c => c.hp > 0 && x + r > c.x && x - r < c.x + c.w && y + r > c.y && y - r < c.y + c.h);
   }
   function snapshot() {
-    return { hp: player.hp, maxHp: player.maxHp, energy: player.energy, maxEnergy: player.maxEnergy, score: run.score, bank: run.bank, combo, comboTime: comboTimer / 4, shards: run.shards, kills: run.kills, elapsed: run.elapsed, destroyed, target: level.target, empCooldown, dashCooldown, demo:run.demo, finale:!!finale, shieldCharge, shieldTimer, bossStage:boss.phase, playerX:player.x, playerY:player.y, worldTime, activeLasers:relays.filter(r=>r.hp>0).length, overclock: overclockWasOn, bossHp: boss.hp, bossMax: boss.maxHp, bossPhase, achievements: run.achievements.length };
+    return { hp: player.hp, maxHp: player.maxHp, energy: player.energy, maxEnergy: player.maxEnergy, score: run.score, bank: run.bank, combo, comboTime: comboTimer / 4, shards: run.shards, kills: run.kills, elapsed: run.elapsed, destroyed, target: level.target, empCooldown, dashCooldown, demo:run.demo, finale:!!finale, shieldCharge, shieldTimer, bossStage:boss.phase, playerX:player.x, playerY:player.y, worldTime, activeLasers:relays.filter(r=>r.hp>0).length, overclock: overclockWasOn, bossX:boss.x,bossY:boss.y,shotsFired:shotSerial,bossHp: boss.hp, bossMax: boss.maxHp, bossPhase, achievements: run.achievements.length };
   }
   function update(dt) {
     if(!active){clock+=dt;worldTime+=dt;return;}
@@ -221,9 +223,9 @@ export function createEngine(canvas, options) {
     if (!solid(player.x, ny, 12)) player.y = ny;
     player.angle = Math.atan2(pointer.y - player.y, pointer.x - player.x);
     if (pointer.down && shotTimer <= 0) {
-      shotTimer = .19 / ((1 + upgrades.rate * .2) * (overclock ? 2 : 1) * (run.perk==='spread'?.85:1));
+      shotTimer = .19 / ((1 + upgrades.rate * .35) * (overclock ? 2 : 1) * (run.perk==='spread'?.85:1));
       fire(player.x + Math.cos(player.angle) * 22, player.y + Math.sin(player.angle) * 22, player.angle, false, 850, WEAPON_DAMAGE[upgrades.damage]);
-      if(run.perk === 'spread') for(const offset of [-.13,.13]) fire(player.x,player.y,player.angle+offset,false,850,WEAPON_DAMAGE[upgrades.damage]*.5);
+      const pairs=upgrades.damage+(run.perk==='spread'?1:0);for(let pair=1;pair<=pairs;pair++)for(const sign of [-1,1])fire(player.x,player.y,player.angle+sign*.09*pair,false,850,WEAPON_DAMAGE[upgrades.damage]*.5);
       muzzle = .07;
       sound('shoot'); burst(player.x + Math.cos(player.angle) * 25, player.y + Math.sin(player.angle) * 25, '#d4ff9d', 3, player.angle);
     }
@@ -282,13 +284,13 @@ export function createEngine(canvas, options) {
     }
     for (let i = shards.length - 1; i >= 0; i--) {
       const shard = shards[i]; shard.age += dt; const d = dist(player, shard);
-      if (d < 125) { shard.x += (player.x - shard.x) * dt * 6; shard.y += (player.y - shard.y) * dt * 6; }
+      if (d < 200) { shard.x += (player.x - shard.x) * dt * 6; shard.y += (player.y - shard.y) * dt * 6; }
       if (d < 20) {shards.splice(i,1);collectShard(shard);}
     }
     for (let i = enemies.length - 1; i >= 0; i--) if (enemies[i].dead) enemies.splice(i, 1);
   }
 
-  function collectShard(){run.shards++;run.totalShards=(run.totalShards||0)+1;const earned=award(100,false);player.energy=Math.min(player.maxEnergy,player.energy+15);player.hp=Math.min(player.maxHp,player.hp+4);number(player.x,player.y-30,`+${earned} / +1 SHARD`,'#79d9f4');sound('collect');if(run.totalShards>=5)toast('shards','DATA LIBERATOR','Five recovered shards. Spend them in the armory.');}
+  function collectShard(shard){const value=shard?.value??1;run.shards+=value;run.totalShards=(run.totalShards||0)+value;player.energy=Math.min(player.maxEnergy,player.energy+Math.min(12,value*.2));player.hp=Math.min(player.maxHp,player.hp+value*.02);pickupPending+=value;if(clock-pickupLast>.12){number(player.x,player.y-35,`+${pickupPending} SHARDS`,'#79d9f4');pickupPending=0;pickupLast=clock;}if(clock-collectSoundLast>.08){sound('collect');collectSoundLast=clock;}if(run.totalShards>=100)toast('shards','DATA LIBERATOR','100 recovered shards. Your armory is funded.');}
   function segmentDistance(p,a,b){const dx=b.x-a.x,dy=b.y-a.y,t=clamp(((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy||1),0,1);return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);}
   function emitter(r){return {x:r.x<600?65:1135,y:r.y};}
   function laserAngle(r){const e=emitter(r);return Math.atan2(380-e.y,600-e.x)+Math.sin(worldTime*.7+r.id)*.65;}
@@ -308,6 +310,28 @@ export function createEngine(canvas, options) {
     if(bossPhase&&boss.phase===2&&boss.phaseTime%4>1){const end={x:boss.x+Math.cos(boss.beam)*1250,y:boss.y+Math.sin(boss.beam)*1250};if(segmentDistance(player,boss,end)<23)hurt(24,'AETHER rotating death beam');}
     if(dist(player,boss)<75)hurt(20,'AETHER mechanical hull collision');
   }
+  function choreograph(){
+    const t=options.trailerTime?.()??clock,cut=options.trailerCut;
+    const once=(id,at,action)=>{if(t>=at&&!trailerEvents.has(id)){trailerEvents.add(id);action();}};
+    if(cut===0){
+      once('setup',0,()=>{worldTime=1.6;spawnTimer=20;hazardTimer=20;enemies.length=0;player.x=430;player.y=365;});
+      if(t<1.1){const p=t/1.1;player.x=430-210*p;player.y=365-150*p;}
+      pointer.x=relays[0].x;pointer.y=relays[0].y;
+      once('dash',.5,()=>{player.angle=Math.atan2(pointer.y-player.y,pointer.x-player.x);dash();});
+      if(t>1.15){player.x=235+Math.sin(t)*12;player.y=220;relays[0].phaseAccess=true;relays[0].hack=Math.min(level.hackTime,t*1.4);}
+      pointer.down=t>1.9;
+      once('breach',3.1,()=>{relays[0].hack=level.hackTime;relays[0].broken=true;damageRelay(relays[0],1000);burst(relays[0].x,relays[0].y,'#ffc76d',95);});
+    }else if(cut===1){
+      once('swarm',0,()=>{spawnTimer=20;hazardTimer=20;enemies.length=0;for(let i=0;i<12;i++){const a=i*TAU/12;enemies.push({x:600+Math.cos(a)*240,y:380+Math.sin(a)*240,hp:ENEMY_HP.drone,radius:14,type:'drone',color:'#ff657e',shot:4,windup:0,charge:0,dead:false});}for(let i=0;i<32;i++)fire(600,380,i*TAU/32,true,190,12,'Trailer plasma ring');});
+      keys.add('Space');player.x=600+Math.sin(t*1.5)*65;player.y=400+Math.cos(t*1.3)*45;pointer.x=740;pointer.y=400;pointer.down=t<2.3;
+      once('emp',2.5,()=>{emp();number(player.x,player.y-85,'+500 COMBO x6!','#79d9f4');});
+    }else{
+      once('core',0,()=>{spawnTimer=20;hazardTimer=20;player.x=600;player.y=540;boss.timer=1.2;});
+      player.x=600+Math.sin(t*1.1)*100;player.y=540+Math.sin(t*2)*30;
+      for(const at of [.4,1.7,3])once(`ring${at}`,at,()=>{for(let i=0;i<28;i++)fire(boss.x,boss.y,i*TAU/28+t,true,170,16,'AETHER siege preview');});
+      for(const at of [1,2.8])once(`mortar${at}`,at,()=>zones.push({x:player.x,y:player.y,r:100,timer:1.5,max:1.5,cause:'AETHER mortar preview'}));
+    }
+  }
   function path(points, close = false) {
     ctx.beginPath(); points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); if (close) ctx.closePath();
   }
@@ -320,6 +344,7 @@ export function createEngine(canvas, options) {
     const scale = Math.min(width / W, height / H);
     ctx.translate((width - W * scale) / 2, (height - H * scale) / 2); ctx.scale(scale, scale);
     ctx.save();
+    if(options.trailer){const t=options.trailerTime?.()??0,cut=options.trailerCut;const zoom=cut===2?1.1+t*.055:1.08+Math.sin(t*.9)*.035;const focus=cut===0?{x:420-t*24,y:320}:cut===1?{x:600+Math.sin(t*.7)*30,y:380}:{x:600+Math.sin(t*.4)*65,y:330};ctx.translate(W/2,H/2);ctx.scale(zoom,zoom);ctx.translate(-focus.x,-focus.y);}
     if (shake > .1 && active) { ctx.translate(rand(-shake, shake), rand(-shake, shake)); shake *= .89; }
     const gradient = ctx.createRadialGradient(600, 380, 50, 600, 380, 700);
     gradient.addColorStop(0, '#192a2d'); gradient.addColorStop(.6, '#132024'); gradient.addColorStop(1, '#0c1516');
@@ -359,7 +384,7 @@ export function createEngine(canvas, options) {
       ctx.save(); ctx.rotate(clock * .45); glow(level.color, 13); ctx.lineWidth = 1.4; ctx.strokeRect(-16, -16, 32, 32); ctx.restore();
       glow(level.color, 16); ctx.fillRect(-6, -11, 12, 22); ctx.shadowBlur = 0;
       ctx.fillStyle = '#35463b'; ctx.fillRect(-25, -44, 50, 3); ctx.fillStyle = level.color; ctx.fillRect(-25, -44, 50 * relay.hp / relay.maxHp, 3);
-      label(level.id === 3 ? 'SHIELD EMITTER' : level.id === 2 ? 'CRYO NODE' : 'SECURITY RELAY', 0, 59, `${level.color}a0`, 8);
+      label(level.id === 3 ? 'SHIELD EMITTER' : options.trailerCut===0&&relay.id===0?'ARMORED RELAY':level.id === 2 ? 'CRYO NODE' : 'SECURITY RELAY', 0, 59, `${level.color}a0`, 8);
       ctx.restore();
     }
     for (const cover of covers) {
@@ -414,8 +439,8 @@ export function createEngine(canvas, options) {
       const warp=ctx.createRadialGradient(px,py,50,px,py,650);warp.addColorStop(0,'#8ad1ea00');warp.addColorStop(1,'#55dce04d');ctx.fillStyle=warp;ctx.fillRect(0,0,W,H);
       for(let i=0;i<32;i++){const a=i*TAU/32,r=220+(clock*430+i*43)%480;path([[px+Math.cos(a)*r,py+Math.sin(a)*r],[px+Math.cos(a)*(r+70),py+Math.sin(a)*(r+70)]]);ctx.strokeStyle='#8ce8e133';ctx.lineWidth=1.5;ctx.stroke();}
     }
-    for(const ghost of ghosts){ctx.save();ctx.globalAlpha=ghost.life*.9;ctx.translate(ghost.x,ghost.y);ctx.rotate(ghost.angle);glow('#79d9f4',18);ctx.fillRect(-13,-11,28,22);ctx.restore();}
-    if(active) label(`SHIFT / DASH ${dashCooldown>0?dashCooldown.toFixed(1)+'s':'READY'}`,W-80,H-47,'#8cc9d0',9);
+    for(const ghost of ghosts){ctx.save();ctx.globalAlpha=ghost.life*.9;ctx.translate(ghost.x,ghost.y);ctx.rotate(ghost.angle);glow('#bdf578',18);ctx.fillRect(-13,-11,28,22);ctx.restore();}
+    if(active&&!options.trailer) label(`SHIFT / DASH ${dashCooldown>0?dashCooldown.toFixed(1)+'s':'READY'}`,W-80,H-47,'#8cc9d0',9);
 
     ctx.save(); ctx.translate(px, py);
     glow(overclockWasOn ? '#8eeaff' : '#c2f66e', 15); ctx.lineWidth = 1;
@@ -445,9 +470,9 @@ export function createEngine(canvas, options) {
     if (!active) { label('OPERATIVE / 01', px, py + 46, '#b9dc8f88', 8); }
     // Inset vignette keeps the neon readable without raster assets.
     const vignette = ctx.createRadialGradient(600, 380, 200, 600, 380, 730); vignette.addColorStop(0, '#00000000'); vignette.addColorStop(1, '#03090955'); ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
-    if(active&&clock<3){ctx.fillStyle='#101c21e8';ctx.fillRect(180,100,840,70);label('MOVE: WASD / ARROWS | DASH: SHIFT | SHOOT GOLD RELAYS',600,129,'#d9edb4',17);label(level.id===2?'DASH INTO GOLD RINGS OR HOLD SPACE TO DECRYPT': 'ENTER GOLD RINGS TO DECRYPT · RED TARGET RINGS MEAN MOVE NOW',600,153,'#ffc76d',12);}
+    if(active&&!options.trailer&&clock<3){ctx.fillStyle='#101c21e8';ctx.fillRect(180,100,840,70);label('MOVE: WASD / ARROWS | DASH: SHIFT | SHOOT GOLD RELAYS',600,129,'#d9edb4',17);label(level.id===2?'DASH INTO GOLD RINGS OR HOLD SPACE TO DECRYPT': 'ENTER GOLD RINGS TO DECRYPT · RED TARGET RINGS MEAN MOVE NOW',600,153,'#ffc76d',12);}
     if(overclockExhausted&&active)label('ENERGY DEPLETED / RELEASE SPACE TO REARM',600,690,'#79d9f4',13);
-    if(finale){ctx.fillStyle='#0c161dcc';ctx.fillRect(140,300,920,135);label(level.id===3?'MAINFRAME TERMINATED':'SECTOR CLEARED',600,352,'#d8ff9b',38);label('FINALE SLOW-MO / 25% · RECOVERING ALL DATA SHARDS',600,391,'#79d9f4',14);label(`UPLINK IN ${Math.max(0,2.2-finale.time).toFixed(1)}s`,600,415,'#ffc76d',12);}
+    if(finale){ctx.fillStyle='#0c161dcc';ctx.fillRect(140,300,920,135);label(level.id===3?'MAINFRAME TERMINATED':'SECTOR CLEARED',600,352,'#d8ff9b',38);label('+150 SHARD SECTOR CLEAR BONUS · RECOVERING ALL DATA',600,391,'#79d9f4',14);label(`UPLINK IN ${Math.max(0,2.2-finale.time).toFixed(1)}s`,600,415,'#ffc76d',12);}
     ctx.restore();
   }
   function drawWorldFeatures(){
@@ -460,7 +485,7 @@ export function createEngine(canvas, options) {
     for(const r of relays)if(r.hp>0){
       const near=dist(player,r)<=level.range,open=(r.broken&&dist(player,r)<=350)||(near&&r.hack>=level.hackTime);ctx.strokeStyle=open?'#ffc76d77':'#ffc76d35';ctx.setLineDash([8,10]);ctx.beginPath();ctx.arc(r.x,r.y,r.broken?350:level.range,0,TAU);ctx.stroke();ctx.setLineDash([]);
       const pulse=42+Math.sin(clock*4)*3;glow('#ffc76d',10);ctx.lineWidth=2;for(let i=0;i<4;i++){const a=i*TAU/4+Math.PI/4,x=r.x+Math.cos(a)*pulse,y=r.y+Math.sin(a)*pulse;path([[x-8,y],[x,y],[x,y+8]]);ctx.stroke();}
-      label(`[ TARGET 0${r.id+1} ]`,r.x,r.y-80,'#ffda8c',13);label(open?'ARMOR EXPOSED':r.broken?'BREACHED / ADVANCE TO GOLD RING':near&&level.id===2&&!r.phaseAccess?'PHASE LOCK / DASH OR SPACE':near?`DECRYPT ${Math.round(r.hack/level.hackTime*100)}%`:'ENTER PROXIMITY RING',r.x,r.y+82,'#ffda8c',11);
+      if(active){label(`[ TARGET 0${r.id+1} ]`,r.x,r.y-80,'#ffda8c',13);label(open?'ARMOR EXPOSED':r.broken?'BREACHED / ADVANCE TO GOLD RING':near&&level.id===2&&!r.phaseAccess?'PHASE LOCK / DASH OR SPACE':near?`DECRYPT ${Math.round(r.hack/level.hackTime*100)}%`:'ENTER PROXIMITY RING',r.x,r.y+82,'#ffda8c',11);}
       if(level.id===2){const emitter={x:r.x<600?65:1135,y:r.y};glow('#ffc76d',8);ctx.lineWidth=2;path([[r.x,r.y],[emitter.x,emitter.y]]);ctx.stroke();ctx.strokeRect(emitter.x-10,emitter.y-10,20,20);}
       if(active&&!finale&&dist(player,r)>300){const a=Math.atan2(r.y-player.y,r.x-player.x),x=clamp(player.x+Math.cos(a)*235,80,W-80),y=clamp(player.y+Math.sin(a)*235,90,H-90);ctx.save();ctx.translate(x,y);ctx.rotate(a);glow('#ffc76d',8);path([[11,0],[-5,-7],[-5,7]],true);ctx.fill();ctx.restore();label(`0${r.id+1}`,x,y+20,'#ffda8c',12);}
     }
@@ -474,7 +499,7 @@ export function createEngine(canvas, options) {
     const dt = Math.max(0,Math.min(.1, (now - (lastFrame || now)) / 1000)); lastFrame = now;
     const paused = active && options.isPaused();
     if (!paused) {
-      accumulator+=dt;while(accumulator>=1/120){if(hitStop>0)hitStop-=1/120;else update(1/120);accumulator-=1/120;}
+      accumulator+=dt;while(accumulator>=1/120){if(hitStop>0)hitStop-=1/120;else {if(options.trailer)choreograph();update(1/120);}accumulator-=1/120;}
       empRing = Math.max(0, empRing - dt);
       if(empOrigin&&empRing>0){const radius=(1-empRing/.65)*290;for(let i=bullets.length-1;i>=0;i--)if(bullets[i].enemy&&dist(bullets[i],empOrigin)<=radius)bullets.splice(i,1);empReached=radius;}
       const fx=finale?.25:1;
@@ -491,7 +516,10 @@ export function createEngine(canvas, options) {
   frame = requestAnimationFrame(animate);
   return {
     emp, dash,
-    complete() { if (!active || done || finale) return; run.demo=true; for(const r of relays)if(r.hp>0){r.hp=0;for(let i=0;i<3;i++)shards.push({x:r.x,y:r.y,age:0});} destroyed=level.target;boss.hp=0;finish(true); },
+    runState(){return structuredClone({...run,health:player.hp});},
+    markDemo(){run.demo=true;options.onHud(snapshot());},
+    grantShards(amount){run.demo=true;run.shards+=amount;run.totalShards+=amount;options.onHud(snapshot());return structuredClone({...run,health:player.hp});},
+    complete() { if (!active || done || finale) return; run.demo=true; for(const r of relays)if(r.hp>0){r.hp=0;for(let i=0;i<RELAY_SHARDS;i++)shards.push({x:r.x+rand(-30,30),y:r.y+rand(-30,30),age:0,value:1});} destroyed=level.target;boss.hp=0;finish(true); },
     snapshot,
     inspect(){return structuredClone({player,relays,boss,enemies,bullets,zones,barrels,shards,finale,worldTime,shieldCharge,shieldTimer,run});},
     destroy() {

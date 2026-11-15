@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createEngine } from '../src/engine.js';
-import { freshRun, getRank, LEVELS, WEAPON_DAMAGE, ENEMY_HP, purchaseUpgrade, purchasePerk, eligibleHighScore, rankBreakdown } from '../src/levels.js';
+import { freshRun, getRank, LEVELS, WEAPON_DAMAGE, ENEMY_HP, purchaseUpgrade, purchasePerk, eligibleHighScore, rankBreakdown, SHARD_COSTS, ENERGY_CAPACITY, enemyShardDrops } from '../src/levels.js';
 
 const originalRandom = Math.random;
 let seed = 73421;
@@ -8,7 +8,7 @@ Math.random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 
 
 // Simulate the real engine without a browser or real time delays.
 // These checks exercise combat outcomes, not a separate implementation.
-function harness(level, god = true, upgrades = {}, perk = null) {
+function harness(level, god = true, upgrades = {}, perk = null, extra = {}) {
   const listeners = new Map();
   let nextFrame, time = 0, ended, paused = false;
   const context = new Proxy({}, { get: (_target, key) => key === 'createRadialGradient' || key === 'createLinearGradient' ? () => ({ addColorStop() {} }) : () => {}, set: () => true });
@@ -27,7 +27,7 @@ function harness(level, god = true, upgrades = {}, perk = null) {
   };
   const run = freshRun(); run.perk=perk; Object.assign(run.upgrades, upgrades);
   const engine = createEngine(canvas, {
-    level, active: true, run, isGod: () => god, isPaused: () => paused,
+    ...extra, level, active: true, run, isGod: () => god, isPaused: () => paused,
     onPause: () => { paused = !paused; }, onHud() {}, onAchievement() {}, onEnd: result => { ended = result; },
   });
   function step(seconds, eachFrame) {
@@ -42,7 +42,7 @@ function harness(level, god = true, upgrades = {}, perk = null) {
 function travel(h,x,y){
  const codes=['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
  for(let n=0;n<1500;n++){
-  const p=h.engine.inspect().player,dx=x-p.x,dy=y-p.y;
+  const state=h.engine.snapshot(),p={x:state.playerX,y:state.playerY},dx=x-p.x,dy=y-p.y;
   if(Math.hypot(dx,dy)<9)break;
   for(const c of codes)h.key(c,false);
   if(dx>5)h.key('ArrowRight');if(dx< -5)h.key('ArrowLeft');if(dy>5)h.key('ArrowDown');if(dy< -5)h.key('ArrowUp');h.step(1/60);
@@ -56,18 +56,18 @@ for(const level of LEVELS){
  if(level.id!==1)assert.equal(h.engine.snapshot().destroyed,0,'Remote fire cannot defeat shielded objectives');
  else assert.ok(h.engine.inspect().barrels.some(b=>b.hp<=0),'Explosive barrels can break armor from range');
  for(const [x,y] of level.positions){
-  travel(h,h.engine.inspect().player.x, y>400?690:90);travel(h,x,y>400?690:90);travel(h,x,y);
+  travel(h,h.engine.snapshot().playerX, y>400?690:90);travel(h,x,y>400?690:90);travel(h,x,y);
   h.aim(x,y);if(level.id===2)h.key('Space');h.step(10);h.key('Space',false);h.release();
  }
  assert.equal(h.engine.snapshot().destroyed,level.target,`Sector ${level.id} objectives can be decrypted and destroyed`);
  if(level.id===3){
   assert.equal(h.engine.snapshot().bossPhase,true);
   const phases=new Set();h.aim(600,220);
-  h.step(90,()=>{const b=h.engine.inspect().boss;phases.add(b.phase);h.aim(b.x,b.y,false);});
+  h.step(90,()=>{const state=h.engine.snapshot();phases.add(state.bossStage);h.aim(state.bossX,state.bossY,false);});
   assert.ok(phases.has(2)&&phases.has(3),'Boss enters death-beam and siege phases');
  }
  h.step(3);assert.equal(h.result()?.won,true,`Sector ${level.id} can be won`);
- assert.ok(h.result().run.totalShards>=level.target*3,'Finale recovers objective shards');
+ assert.ok(h.result().run.totalShards>=level.target*35+150,'Finale recovers objective shards');
  assert.equal(h.engine.inspect().shards.length,0,'No finale loot is lost');
  h.close();console.log(`PASS sector ${level.id}: shields, traversal, destruction, finale loot, boss phases`);
 }
@@ -81,7 +81,7 @@ for(const level of LEVELS){
  h.close();console.log('PASS controls: overclock, global hazard clock, arrow dash, EMP, pause');
 }
 {
- const h=harness(1);h.step(.1);h.engine.complete();assert.equal(h.result(),undefined,'Completion does not switch immediately');h.step(1);assert.equal(h.result(),undefined);assert.ok(h.engine.snapshot().finale);h.step(1.3);assert.equal(h.result()?.won,true);assert.equal(h.result().run.demo,true);assert.equal(h.result().run.totalShards,9);h.close();console.log('PASS 2.2-second delayed finale, vacuum and demo taint');
+ const h=harness(1);h.step(.1);h.engine.complete();assert.equal(h.result(),undefined,'Completion does not switch immediately');h.step(1);assert.equal(h.result(),undefined);assert.ok(h.engine.snapshot().finale);h.step(1.3);assert.equal(h.result()?.won,true);assert.equal(h.result().run.demo,true);assert.equal(h.result().run.totalShards,255);h.close();console.log('PASS 2.2-second delayed finale, vacuum and demo taint');
 }
 {
  const h=harness(1,false);h.step(50);assert.equal(h.result()?.won,false,'Standing still is fatal');assert.ok(h.result().run.fatalThreat,'Fatal threat is recorded');h.close();console.log('PASS stationary defeat and exact fatal threat');
@@ -94,13 +94,35 @@ for(const level of LEVELS){
 }
 
 {
- const run=freshRun();run.bank=6000;run.shards=12;run.score=6000;
- const bought=purchaseUpgrade(run,'damage');assert.equal(bought.upgrades.damage,1);assert.equal(bought.shards,11);assert.equal(bought.bank,5350);assert.equal(bought.score,6000);
- assert.equal(purchaseUpgrade({...run,shards:0},'damage').upgrades.damage,0,'Shards required');
- const perk=purchasePerk(run,'spread');assert.equal(perk.shards,10);assert.equal(perk.bank,5650);
- for(const hp of Object.values({drone:ENEMY_HP.drone,gunner:ENEMY_HP.gunner})){const hits=WEAPON_DAMAGE.map(d=>Math.ceil(hp/d));for(let i=1;i<hits.length;i++)assert.ok(hits[i]<hits[i-1],'Every damage tier improves hits to kill');}
+ const run=freshRun();run.bank=6000;run.shards=300;run.score=6000;
+ const bought=purchaseUpgrade(run,'damage');assert.equal(bought.upgrades.damage,1);assert.equal(bought.shards,220);assert.equal(bought.bank,6000);assert.equal(bought.score,6000);
+ const tier2=purchaseUpgrade(bought,'damage');assert.equal(tier2.upgrades.damage,2);assert.equal(tier2.shards,80);
+ assert.equal(purchaseUpgrade({...run,shards:79},'damage').upgrades.damage,0,'80 shards required');
+ assert.equal(purchaseUpgrade({...tier2,shards:219},'damage').upgrades.damage,2,'Tier 3 requires 220');
+ const perk=purchasePerk(run,'spread');assert.equal(perk.shards,200);assert.equal(perk.bank,6000);
+ for(const hp of [ENEMY_HP.drone,ENEMY_HP.gunner]){const hits=WEAPON_DAMAGE.map(d=>Math.ceil(hp/d));for(let i=1;i<hits.length;i++)assert.ok(hits[i]<hits[i-1]);}
+ assert.deepEqual(SHARD_COSTS,[80,140,220]);assert.deepEqual(ENERGY_CAPACITY,[100,150,225,338]);
  assert.equal(eligibleHighScore({...run,demo:true}),false);assert.equal(eligibleHighScore(run),true);
  assert.equal(getRank({...run,score:20000,elapsed:150,damageTaken:10},true),'S');assert.equal(getRank(freshRun(),false),'C');assert.ok(rankBreakdown(run,true).formula.includes('damage'));
- console.log('PASS shard economy, weapon breakpoints, score eligibility and rank formula');
+ let shopping={...run,shards:255};for(const id of ['rate','damage','energy'])shopping=purchaseUpgrade(shopping,id);assert.equal(shopping.shards,15,'Objective rewards fund three first-tier upgrades');
+ assert.equal(3*35+150+2*20,295,'Fast one-kill route yields 295 shards');assert.equal(3*35+150+4*20,335,'Fast two-kill route yields 335 shards');
+ for(const type of ['drone','gunner','charger','mortar']){const drops=enemyShardDrops(type);const elite=['charger','mortar'].includes(type);assert.ok(drops.length>=(elite?8:2)&&drops.length<=(elite?10:3));assert.ok(drops.every(value=>value>=20&&value<=25));}
+ console.log('PASS 80/140/220 economy, generous drops, 295–335 fast routes, three first-shop purchases, score integrity');
 }
+{
+ const base=harness(1);base.aim(1000,450);base.step(.05);const baseline=base.engine.inspect().bullets.filter(b=>!b.enemy).length;base.close();
+ const split=harness(1,true,{damage:1,energy:1,rate:1});split.aim(1000,450);split.step(.05);assert.equal(split.engine.inspect().bullets.filter(b=>!b.enemy).length,baseline+2,'Prism adds two real projectiles');assert.equal(split.engine.snapshot().maxEnergy,150);split.close();
+ const slow=harness(1);slow.aim(1000,450);slow.step(1);const slowCount=slow.engine.snapshot().shotsFired;slow.close();const fast=harness(1,true,{rate:1});fast.aim(1000,450);fast.step(1);assert.ok(fast.engine.snapshot().shotsFired>slowCount,'35% fire-rate upgrade increases actual volleys');fast.close();
+ console.log('PASS strong upgrades: extra projectiles, 50% capacity, actual fire-rate increase');
+}
+for(const cut of [0,1,2]){
+ let trailerTime=0;const h=harness([2,1,3][cut],true,{damage:2,energy:2,rate:1},null,{trailer:true,trailerCut:cut,trailerTime:()=>trailerTime});
+ for(let i=0;i<230;i++){trailerTime=i/60;h.step(1/60);}
+ const state=h.engine.inspect();if(cut===0)assert.ok(state.relays[0].hp<=0,'Trailer destroys a real engine objective');if(cut===1){assert.ok(state.run.kills>=8,'Trailer EMP destroys the real swarm');assert.ok(h.engine.snapshot().overclock,'Trailer uses real Overclock');}if(cut===2){assert.ok(state.bullets.some(b=>b.enemy),'AETHER fires real projectile rings');assert.ok(state.zones.length>0,'AETHER deploys real mortar zones');}
+ assert.equal(h.result(),undefined,'Trailer cannot complete the campaign');h.close();console.log(`PASS in-engine trailer cut ${cut+1}`);
+}
+{
+ const h=harness(1);const before=h.engine.runState();const next=h.engine.grantShards(5000);assert.equal(next.shards,before.shards+5000);assert.equal(next.demo,true);assert.equal(h.engine.snapshot().shards,next.shards);h.close();console.log('PASS live judge wallet grants and demo taint');
+}
+
 Math.random=originalRandom;
