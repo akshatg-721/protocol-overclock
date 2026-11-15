@@ -2,9 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, SlidersHorizontal, Volume2, Zap } from 'lucide-react';
 import { createEngine } from './engine';
 import { freshRun } from './levels';
-import { introFrequencyData, setCombatAudio, introCue, setIntroAudio, unlockAudio } from './audio';
+import { introFrequencyData, setCombatAudio, introCue, setIntroAudio, unlockAudio, prepareIntroNarration, narrateIntroLine, cancelIntroNarration, pauseIntroNarration } from './audio';
 
 const DURATION=16,TAU=Math.PI*2;
+const NARRATION=[
+ 'Year twenty-ninety-four. Central defense AI, Aether, has gone rogue. Sector Seven is under lethal lockdown.',
+ 'You are Unit Zero-Nine. Overclock neural core online. Weaponize time.',
+ 'Decrypt the perimeter relays. Survive the cryo-grid. Harvest data shards to upgrade your exosuit.',
+ 'Breach the mainframe core. Terminate Aether. Break the system.',
+];
 const ACTS=[
  {title:'THE AETHER LOCKDOWN',tag:'ORBITAL SATELLITE / SECTOR 07',color:'#FF354F',subtitle:"YEAR 2094. CENTRAL DEFENSE AI 'AETHER' HAS GONE ROGUE—LOCKING DOWN SECTOR 07 AND TURNING OUR OWN MACHINES AGAINST US."},
  {title:'UNIT-09: OVERCLOCK IGNITION',tag:'EXPERIMENTAL OVERCLOCK NEURAL CORE',color:'#A8FF54',subtitle:'YOU ARE UNIT-09: THE LAST OPERATIVE EQUIPPED WITH THE EXPERIMENTAL OVERCLOCK NEURAL CORE—BUILT TO BEND TIME.'},
@@ -149,21 +155,25 @@ const STORY_STYLES=`
 @media(max-width:680px){.cinema-spectrum-top{gap:1px;align-self:center}.cinema-spectrum-top i{width:1px;height:15px}.cinema-spectrum-bottom{gap:2px;height:22px}.cinema-spectrum-bottom i{height:22px}.finale-emblem>small{font-size:6px;letter-spacing:1.4px;padding:10px 12px;margin-top:13px}.story-transmission{max-width:150px}.story-cutscene .story-top{gap:9px}.finale-emblem>span{letter-spacing:.3em;padding-left:.3em}}
 @media(prefers-reduced-motion:reduce){.finale-emblem{transform:none}.cinema-lens:after{opacity:.1}}
 
+.ai-comms-badge{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;color:#52DFFF;font:6px/1.4 var(--mono);letter-spacing:.7px;text-shadow:0 0 8px #52DFFF66;white-space:nowrap}.ai-comms-wave{display:flex;align-items:center;gap:2px;height:12px}.ai-comms-wave i{display:block;width:2px;height:11px;background:#52DFFF;box-shadow:0 0 5px #52DFFF66;transform-origin:center;animation:ai-voice-wave .55s ease-in-out infinite alternate}@keyframes ai-voice-wave{from{transform:scaleY(.2);opacity:.5}to{transform:scaleY(1);opacity:1}}@media(max-width:680px){.ai-comms-badge{font-size:4.5px;letter-spacing:.2px;bottom:5px;gap:5px}.ai-comms-wave{gap:1px;height:9px}.ai-comms-wave i{width:1px;height:8px}}@media(prefers-reduced-motion:reduce){.ai-comms-wave i{animation:none;transform:scaleY(.65)}}
+
 `;
 
 export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOptions,paused=false}){
  const screen=useRef(null),root=useRef(null),spectrum=useRef(null),topBars=useRef(null),bottomBars=useRef(null);
  if(!spectrum.current)spectrum.current={raw:new Uint8Array(32),levels:new Float32Array(32)};
  if(!topBars.current){topBars.current=WAVE_BARS.map(()=>({current:null}));bottomBars.current=WAVE_BARS.map(()=>({current:null}));}
+ const narratedAct=useRef(-1);
  const canvas=useRef(null),current=useRef({paused}),elapsedRef=useRef(0),mounted=useRef(true),finished=useRef(false);
  current.current={paused};
- const [started,setStarted]=useState(false),[booting,setBooting]=useState(false),[error,setError]=useState(false),[elapsed,setElapsed]=useState(0);
- useEffect(()=>{mounted.current=true;storyArt(canvas.current.getContext('2d'));for(let i=0;i<4;i++)if(!KINETIC_CACHE[i])KINETIC_CACHE[i]=kineticArt(i);return()=>{mounted.current=false;};},[]);
- function complete(){if(finished.current)return;finished.current=true;setIntroAudio(false);setCombatAudio(false);onComplete();}
- async function boot(){if(booting)return;setBooting(true);const ready=await unlockAudio();if(!mounted.current||finished.current)return;setBooting(false);if(ready){onEnableAudio?.();setStarted(true);setError(false);}else setError(true);}
+ const [started,setStarted]=useState(false),[booting,setBooting]=useState(false),[error,setError]=useState(false),[elapsed,setElapsed]=useState(0),[voiceActive,setVoiceActive]=useState(false);
+ useEffect(()=>{mounted.current=true;const releaseVoices=prepareIntroNarration();storyArt(canvas.current.getContext('2d'));for(let i=0;i<4;i++)if(!KINETIC_CACHE[i])KINETIC_CACHE[i]=kineticArt(i);return()=>{mounted.current=false;releaseVoices();cancelIntroNarration();};},[]);
+ function speaking(active){if(mounted.current&&!finished.current)setVoiceActive(active);}
+ function complete(){if(finished.current)return;finished.current=true;cancelIntroNarration();setIntroAudio(false);setCombatAudio(false);onComplete();}
+ async function boot(){if(booting)return;setBooting(true);const ready=await unlockAudio();if(!mounted.current||finished.current)return;setBooting(false);if(ready){onEnableAudio?.();setIntroAudio(true);narratedAct.current=0;narrateIntroLine(NARRATION[0],{act:0,onSpeaking:speaking});setStarted(true);setError(false);}else setError(true);}
  useEffect(()=>{
   if(!started)return;
-  let raf,engine,stage='',last=0,lastUI=0,lastAct=-1,lastType=0,lastClick=-1,lastBeat=-1,lastAlarm=-1,glitchPlayed=false,finalePlayed=false,bossTelemetry=null;
+  let raf,engine,stage='',last=0,lastUI=0,lastAct=-1,lastType=0,lastClick=-1,lastBeat=-1,lastAlarm=-1,glitchPlayed=false,finalePlayed=false,bossTelemetry=null,shieldPlayed=false,lastHeartbeat=-1;
   const cuedImpacts=new Uint8Array(4),reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const run=freshRun();run.demo=true;run.upgrades={damage:2,hull:1,energy:2,rate:1};run.health=140;
   function frame(now){
@@ -181,12 +191,14 @@ export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOpti
    if(root.current){root.current.style.setProperty('--slam-scale',String(1.6-.6*easeOutCubic((t-14.5)/.25)));root.current.style.setProperty('--slam-opacity',String(easeOutCubic((t-14.5)/.16)*(1-easeInOutSine((t-15.7)/.3))));}
 
    if(!current.current.paused){
-    if(act!==lastAct){lastAct=act;lastType=0;introCue('act',act);}
+    if(act!==lastAct){lastAct=act;lastType=0;introCue('act',act);if(narratedAct.current!==act){narratedAct.current=act;narrateIntroLine(NARRATION[act],{act,onSpeaking:speaking});}}
     const letters=Math.min(ACTS[act].subtitle.length,Math.floor(local/2.85*ACTS[act].subtitle.length));
     if(letters>lastType&&t-lastClick>.065){introCue('type',act);lastType=letters;lastClick=t;}
     const beat=Math.floor(t*2);if(beat!==lastBeat){lastBeat=beat;introCue('pulse',act);}
     const alarm=Math.floor(t/1.5);if((act===0||act===3)&&alarm!==lastAlarm){lastAlarm=alarm;introCue('alarm',act);}
     for(let i=0;i<IMPACTS.length;i++)if(t>=IMPACTS[i].at&&!cuedImpacts[i]){cuedImpacts[i]=1;introCue('impact',IMPACTS[i].act);}
+    if(t>=8+3.1/4.5&&!shieldPlayed){shieldPlayed=true;introCue('shieldBreak',2);}
+    if(t>=12&&t<14.5){const heartbeat=Math.floor((t-12)/.3);if(heartbeat!==lastHeartbeat){lastHeartbeat=heartbeat;introCue('heartbeat',3);}}
     if(t>=14.5&&!finalePlayed){finalePlayed=true;introCue('finale',3);}
     if(t>15.35&&!glitchPlayed){glitchPlayed=true;introCue('glitch',3);}
    }
@@ -195,16 +207,16 @@ export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOpti
    raf=requestAnimationFrame(frame);
   }
   raf=requestAnimationFrame(frame);
-  return()=>{cancelAnimationFrame(raf);engine?.destroy();setIntroAudio(false);setCombatAudio(false);};
+  return()=>{cancelAnimationFrame(raf);engine?.destroy();cancelIntroNarration();setIntroAudio(false);setCombatAudio(false);};
  },[started,onComplete]);
- useEffect(()=>{setIntroAudio(started&&!paused);setCombatAudio(started&&!paused);return()=>{setIntroAudio(false);setCombatAudio(false);};},[started,paused]);
+ useEffect(()=>{pauseIntroNarration(paused);setIntroAudio(started&&!paused);setCombatAudio(started&&!paused);},[started,paused]);
  const act=Math.min(3,Math.floor(elapsed/4)),local=elapsed-act*4,scene=ACTS[act],letters=Math.min(scene.subtitle.length,Math.floor(local/2.85*scene.subtitle.length)),montage=montageIndex(elapsed),finale=elapsed>=14.5;
  return <section className="cinematic gameplay-trailer industrial-transmission story-cutscene" aria-label="16-second storyline and in-engine cutscene" ref={root} style={{'--act-color':scene.color}}>
   <style>{STORY_STYLES}</style>
   <canvas ref={canvas} className="trailer-canvas cinema-source" aria-hidden="true" aria-label={act<2?`Animated story: ${scene.title}`:`Live engine: ${act===2?MONTAGE[montage].label:'AETHER mainframe boss'}`}/>
   <canvas ref={screen} className="cinema-screen" role="img" aria-label={`Cinematic ${scene.title}`}/>
   <div className="cinema-lens" aria-hidden="true"/>
-  <header className="story-letterbox story-top"><span className="story-transmission"><span className="status-dot"/>[ INCOMING TRANSMISSION // YEAR 2094 // SECTOR 07 ]</span><div className="cinema-spectrum cinema-spectrum-top" aria-label="32-bar audio frequency visualizer">{WAVE_BARS.map(i=><i key={i} ref={topBars.current[i]}/>)}</div><div className="story-top-actions"><button className="text-button" onClick={onOptions}><SlidersHorizontal size={12}/> OPTIONS / ESC</button><button className="text-button story-skip" onClick={complete}>[ SKIP CUTSCENE -&gt; ]</button></div></header>
+  <header className="story-letterbox story-top"><span className="story-transmission"><span className="status-dot"/>[ INCOMING TRANSMISSION // YEAR 2094 // SECTOR 07 ]</span><div className="cinema-spectrum cinema-spectrum-top" aria-label="32-bar audio frequency visualizer">{WAVE_BARS.map(i=><i key={i} ref={topBars.current[i]}/>)}</div><div className="story-top-actions"><button className="text-button" onClick={onOptions}><SlidersHorizontal size={12}/> OPTIONS / ESC</button><button className="text-button story-skip" onClick={complete}>[ SKIP CUTSCENE -&gt; ]</button></div>{voiceActive&&!paused&&<div className="ai-comms-badge" role="status"><span className="ai-comms-wave" aria-hidden="true">{WAVE_BARS.slice(0,8).map(i=><i key={i} style={{animationDelay:`${i*-.075}s`}}/>)}</span><span>[ AI COMMS // VOICE TRANSMISSION ACTIVE ]</span></div>}</header>
   {!started?<div className="neural-boot"><span className="eyebrow lime">PROTOCOL OVERCLOCK / CLASSIFIED TRANSMISSION</span><div className="boot-sigil"><Zap size={40}/></div><h1>Establish your neural link.</h1><p>A 16-second story transmission.<br/>One operative. Three sectors. One rogue AI.</p><button className="primary-button" disabled={booting} onClick={boot}><Volume2 size={16}/>{booting?'CONNECTING AUDIO DEVICE…':'[ ESTABLISH NEURAL LINK // ENABLE AUDIO ]'}</button>{error&&<><p role="alert">Audio activation failed. Retry or continue silently.</p><button className="text-button" onClick={()=>{onSilent?.();setStarted(true);}}>CONTINUE WITHOUT AUDIO <ArrowRight size={13}/></button></>}</div>:<>
    <div className="story-act-heading" key={act}><span className="eyebrow">ACT 0{act+1} / CLASSIFIED STORY UPLINK</span><h2>{scene.title}</h2><small>{scene.tag}</small></div>
    {act===2&&<div className="story-montage-tabs">{MONTAGE.map((shot,i)=><span className={montage===i?'selected':''} key={shot.label}>{shot.label}</span>)}</div>}
