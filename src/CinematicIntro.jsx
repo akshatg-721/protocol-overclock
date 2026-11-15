@@ -32,7 +32,7 @@ export default function CinematicIntro({onComplete,onSilent,onEnableAudio,onOpti
  },[started,onComplete]);
  useEffect(()=>{setCombatAudio(started&&!paused);return()=>setCombatAudio(false);},[started,paused]);
  const cut=elapsed<4?0:elapsed<9?1:2,scene=CUTS[cut],glitch=elapsed>13.25;
- return <section className={`cinematic gameplay-trailer ${glitch?'trailer-glitch':''}`} aria-label="14-second in-engine gameplay trailer">
+ return <section className={`cinematic gameplay-trailer industrial-transmission ${glitch?'trailer-glitch':''}`} aria-label="14-second in-engine gameplay trailer">
   <canvas ref={canvas} className="trailer-canvas" aria-label={`Live game engine trailer: ${scene.title}`}/>
   <div className="cinema-letterbox top"><span className="eyebrow"><span className="status-dot"/> AETHER / 2094 / ENGINE CAPTURE</span><div><button className="text-button" onClick={onOptions}><SlidersHorizontal size={13}/> OPTIONS / ESC</button><button className="text-button lime" onClick={onComplete}>[SKIP TRAILER →]</button></div></div>
   {!started?<div className="neural-boot"><span className="eyebrow lime">PROTOCOL OVERCLOCK / LIVE COMBAT TRANSMISSION</span><div className="boot-sigil"><Zap size={40}/></div><h1>Establish your neural link.</h1><p>A 14-second, in-engine transmission.<br/>Dash. Bend time. Face AETHER.</p><button className="primary-button" disabled={booting} onClick={boot}><Volume2 size={16}/>{booting?'CONNECTING AUDIO DEVICE…':'[ESTABLISH NEURAL LINK // ENABLE AUDIO]'}</button>{error&&<><p role="alert">Audio activation failed. Retry or continue silently.</p><button className="text-button" onClick={()=>{onSilent?.();setStarted(true);}}>CONTINUE WITHOUT AUDIO <ArrowRight size={13}/></button></>}</div>:<>

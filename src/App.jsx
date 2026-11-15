@@ -68,7 +68,7 @@ export default function App(){
  const objective=level===3&&hud.bossPhase?`Terminate AETHER · phase ${hud.bossStage}`:config.objective;
  const breakdown=result?rankBreakdown(result.run,result.won):null;
  const visibleShards=playing?hud.shards:run.shards;
- return <main className={`arcade h-screen w-screen overflow-hidden ${phase==='intro'?'is-trailer':''} ${hud.overclock&&playing?'time-dilation':''}`} ref={shell}>
+ return <main className={`arcade industrial-os h-screen w-screen overflow-hidden ${phase==='intro'?'is-trailer':''} ${hud.overclock&&playing?'time-dilation':''}`} ref={shell}>
   <header className="hud-top" aria-label="Combat HUD">
    <div className="hud-vitals"><span className="eyebrow"><Heart size={12}/> INTEGRITY <b className={hud.hp<35?'danger':''}>{Math.ceil(hud.hp)}<small>/{hud.maxHp}</small></b></span><Meter value={hud.hp} max={hud.maxHp}/><span className="hud-sector">SECTOR 0{level} / {config.name.toUpperCase()}</span></div>
    <div className="mission-objective"><span className="eyebrow"><Crosshair size={11}/> MISSION OBJECTIVE</span><strong>{objective} <b>{level===3&&hud.bossPhase?`${Math.ceil(hud.bossHp/hud.bossMax*100)}% HP`:`${hud.destroyed}/${config.target}`}</b></strong></div>

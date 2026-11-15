@@ -26,6 +26,6 @@ const GameCanvas = forwardRef(function GameCanvas(props, ref) {
   }, [props.session, props.level, props.active]);
   useEffect(() => { engine.current?.clearInput(); }, [props.bindings, props.paused]);
   const binding=props.bindings||DEFAULT_BINDINGS;
-  return <canvas ref={canvas} className="game-canvas" aria-label={`Protocol Overclock game arena. Move ${[binding.up,binding.left,binding.down,binding.right].map(keyLabel).join(" / ")}. Mouse aim and fire. ${keyLabel(binding.overclock)} Overclock, ${keyLabel(binding.emp)} EMP, ${keyLabel(binding.dash)} Dash. Escape tactical menu.`} tabIndex={0} />;
+  return <canvas ref={canvas} className="game-canvas industrial-canvas" aria-label={`Protocol Overclock game arena. Move ${[binding.up,binding.left,binding.down,binding.right].map(keyLabel).join(" / ")}. Mouse aim and fire. ${keyLabel(binding.overclock)} Overclock, ${keyLabel(binding.emp)} EMP, ${keyLabel(binding.dash)} Dash. Escape tactical menu.`} tabIndex={0} />;
 });
 export default GameCanvas;
